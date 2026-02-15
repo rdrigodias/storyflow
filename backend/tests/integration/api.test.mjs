@@ -1062,6 +1062,50 @@ test('user should not delete project from another user when DB is ready', async 
   assert.equal(ownerGetBody.id, project.id);
 });
 
+test('storyboard generate start should reuse provided projectId when project exists', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-start-reuse-project');
+  const existingProject = await createProject(token, { title: 'Projeto Reuso Original' });
+
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...buildStoryboardPayload('Cena reuso um. Cena reuso dois.'),
+      projectId: existingProject.id,
+      title: 'Projeto Reuso Atualizado',
+    }),
+  });
+  const startBody = await startResponse.json();
+
+  assert.equal(startResponse.status, 200);
+  assert.ok(startBody.jobId);
+  assert.equal(startBody.projectId, existingProject.id);
+  assert.equal(startBody.status, 'running');
+
+  const jobResult = await waitForJobResult(token, startBody.jobId);
+  assert.equal(jobResult.status, 200);
+  assert.equal(jobResult.body.status, 'completed');
+  assert.equal(jobResult.body.projectId, existingProject.id);
+
+  const projectResponse = await fetch(`${baseUrl}/projects/${existingProject.id}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const projectBody = await projectResponse.json();
+
+  assert.equal(projectResponse.status, 200);
+  assert.equal(projectBody.id, existingProject.id);
+  assert.equal(projectBody.title, 'Projeto Reuso Atualizado');
+  assert.equal(projectBody.status, 'COMPLETED');
+});
+
 test('storyboard async job should complete successfully in mock mode', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
