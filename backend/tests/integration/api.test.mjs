@@ -17,6 +17,7 @@ const prisma = new PrismaClient({
     },
   },
 });
+const geminiPermissionDeniedMessage = 'Conta sem permissão para gerar conteúdo.';
 let serverProcess;
 let serverLogs = '';
 let databaseReady = false;
@@ -463,7 +464,7 @@ test('POST /login should return 400 for unknown email', async () => {
   const body = await response.json();
 
   assert.equal(response.status, 400);
-  assert.ok(body.error || body.message);
+  assert.equal(body.error, 'Credenciais inválidas.');
 });
 
 test('POST /login should return 400 when password is missing', async () => {
@@ -499,7 +500,7 @@ test('POST /login should return 400 for invalid password', async (t) => {
   const body = await response.json();
 
   assert.equal(response.status, 400);
-  assert.ok(body.error || body.message);
+  assert.equal(body.error, 'Credenciais inválidas.');
 });
 
 test('POST /login should deny banned user', async (t) => {
@@ -521,7 +522,7 @@ test('POST /login should deny banned user', async (t) => {
   const body = await response.json();
 
   assert.equal(response.status, 403);
-  assert.ok(body.error || body.message);
+  assert.equal(body.error, 'Usuário banido.');
 });
 
 test('POST /login should deny pending user', async (t) => {
@@ -543,7 +544,7 @@ test('POST /login should deny pending user', async (t) => {
 
   assert.equal(response.status, 403);
   assert.equal(body.status, 'PENDING');
-  assert.ok(body.error);
+  assert.equal(body.error, 'Sua conta está em análise. Aguarde aprovação do administrador.');
 });
 
 test('POST /login should authenticate ACTIVE user and GET /me should return profile', async (t) => {
@@ -1118,7 +1119,7 @@ test('GET /admin/users without token should be unauthorized', async () => {
   const body = await response.json();
 
   assert.equal(response.status, 401);
-  assert.ok(body.message || body.error);
+  assert.equal(body.message, 'Unauthorized');
 });
 
 test('GET /admin/users with invalid token signature should be unauthorized', async () => {
@@ -1140,7 +1141,7 @@ test('GET /admin/users with invalid token signature should be unauthorized', asy
   const body = await response.json();
 
   assert.equal(response.status, 401);
-  assert.ok(body.message || body.error);
+  assert.equal(body.message, 'Unauthorized');
 });
 
 test('GET /admin/users with expired token should be unauthorized', async () => {
@@ -1161,7 +1162,7 @@ test('GET /admin/users with expired token should be unauthorized', async () => {
   const body = await response.json();
 
   assert.equal(response.status, 401);
-  assert.ok(body.message || body.error);
+  assert.equal(body.message, 'Unauthorized');
 });
 
 test('GET /admin/users with non-admin role should be forbidden', async () => {
@@ -1180,7 +1181,7 @@ test('GET /admin/users with non-admin role should be forbidden', async () => {
   const body = await response.json();
 
   assert.equal(response.status, 403);
-  assert.ok(body.message || body.error);
+  assert.equal(body.message, 'Acesso Negado');
 });
 
 test('POST /admin/change-plan without token should be unauthorized', async () => {
@@ -1197,7 +1198,7 @@ test('POST /admin/change-plan without token should be unauthorized', async () =>
   const body = await response.json();
 
   assert.equal(response.status, 401);
-  assert.ok(body.message || body.error);
+  assert.equal(body.message, 'Unauthorized');
 });
 
 test('POST /admin/change-plan with invalid token signature should be unauthorized', async () => {
@@ -1224,7 +1225,7 @@ test('POST /admin/change-plan with invalid token signature should be unauthorize
   const body = await response.json();
 
   assert.equal(response.status, 401);
-  assert.ok(body.message || body.error);
+  assert.equal(body.message, 'Unauthorized');
 });
 
 test('POST /admin/change-plan with expired token should be unauthorized', async () => {
@@ -1250,7 +1251,7 @@ test('POST /admin/change-plan with expired token should be unauthorized', async 
   const body = await response.json();
 
   assert.equal(response.status, 401);
-  assert.ok(body.message || body.error);
+  assert.equal(body.message, 'Unauthorized');
 });
 
 test('POST /admin/change-plan with non-admin role should be forbidden', async () => {
@@ -1274,7 +1275,7 @@ test('POST /admin/change-plan with non-admin role should be forbidden', async ()
   const body = await response.json();
 
   assert.equal(response.status, 403);
-  assert.ok(body.message || body.error);
+  assert.equal(body.message, 'Acesso Negado');
 });
 
 test('POST /admin/change-plan should return 400 when payload is incomplete', async () => {
@@ -1297,7 +1298,7 @@ test('POST /admin/change-plan should return 400 when payload is incomplete', asy
   const body = await response.json();
 
   assert.equal(response.status, 400);
-  assert.ok(body.message || body.error);
+  assert.equal(body.message, 'email e newPlan obrigatórios');
 });
 
 test('POST /admin/change-plan should return 400 for invalid plan', async () => {
@@ -1321,7 +1322,7 @@ test('POST /admin/change-plan should return 400 for invalid plan', async () => {
   const body = await response.json();
 
   assert.equal(response.status, 400);
-  assert.ok(body.message || body.error);
+  assert.equal(body.message, 'Plano inválido');
 });
 
 test('GET /admin/users should return users list for admin role when DB is ready', async (t) => {
@@ -1669,7 +1670,7 @@ test('POST /storyboard/generate/start should deny banned user', async (t) => {
   });
   const banBody = await banResponse.json();
   assert.equal(banResponse.status, 200);
-  assert.ok(banBody.message);
+  assert.equal(banBody.message, 'Usuário banido');
 
   const forbiddenResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
     method: 'POST',
@@ -1682,7 +1683,7 @@ test('POST /storyboard/generate/start should deny banned user', async (t) => {
   const forbiddenBody = await forbiddenResponse.json();
 
   assert.equal(forbiddenResponse.status, 403);
-  assert.ok(forbiddenBody.error || forbiddenBody.message);
+  assert.equal(forbiddenBody.error, geminiPermissionDeniedMessage);
 });
 
 test('POST /storyboard/generate/start should deny expired user', async (t) => {
@@ -1702,7 +1703,7 @@ test('POST /storyboard/generate/start should deny expired user', async (t) => {
   const forbiddenBody = await forbiddenResponse.json();
 
   assert.equal(forbiddenResponse.status, 403);
-  assert.ok(forbiddenBody.error || forbiddenBody.message);
+  assert.equal(forbiddenBody.error, geminiPermissionDeniedMessage);
 });
 
 test('POST /storyboard/generate/start should return 400 for invalid projectId format', async () => {
@@ -3015,7 +3016,7 @@ test('storyboard generate should deny banned user', async (t) => {
   });
   const banBody = await banResponse.json();
   assert.equal(banResponse.status, 200);
-  assert.ok(banBody.message);
+  assert.equal(banBody.message, 'Usuário banido');
 
   const forbiddenResponse = await fetch(`${baseUrl}/storyboard/generate`, {
     method: 'POST',
@@ -3028,7 +3029,7 @@ test('storyboard generate should deny banned user', async (t) => {
   const forbiddenBody = await forbiddenResponse.json();
 
   assert.equal(forbiddenResponse.status, 403);
-  assert.ok(forbiddenBody.error || forbiddenBody.message);
+  assert.equal(forbiddenBody.error, geminiPermissionDeniedMessage);
 });
 
 test('storyboard regenerate-image should deny banned user', async (t) => {
@@ -3054,7 +3055,7 @@ test('storyboard regenerate-image should deny banned user', async (t) => {
   });
   const banBody = await banResponse.json();
   assert.equal(banResponse.status, 200);
-  assert.ok(banBody.message);
+  assert.equal(banBody.message, 'Usuário banido');
 
   const forbiddenResponse = await fetch(`${baseUrl}/storyboard/regenerate-image`, {
     method: 'POST',
@@ -3067,7 +3068,7 @@ test('storyboard regenerate-image should deny banned user', async (t) => {
   const forbiddenBody = await forbiddenResponse.json();
 
   assert.equal(forbiddenResponse.status, 403);
-  assert.ok(forbiddenBody.error || forbiddenBody.message);
+  assert.equal(forbiddenBody.error, geminiPermissionDeniedMessage);
 });
 
 test('storyboard generate should deny expired user', async (t) => {
@@ -3087,7 +3088,7 @@ test('storyboard generate should deny expired user', async (t) => {
   const forbiddenBody = await forbiddenResponse.json();
 
   assert.equal(forbiddenResponse.status, 403);
-  assert.ok(forbiddenBody.error || forbiddenBody.message);
+  assert.equal(forbiddenBody.error, geminiPermissionDeniedMessage);
 });
 
 test('storyboard regenerate-image should deny expired user', async (t) => {
@@ -3107,5 +3108,5 @@ test('storyboard regenerate-image should deny expired user', async (t) => {
   const forbiddenBody = await forbiddenResponse.json();
 
   assert.equal(forbiddenResponse.status, 403);
-  assert.ok(forbiddenBody.error || forbiddenBody.message);
+  assert.equal(forbiddenBody.error, geminiPermissionDeniedMessage);
 });
