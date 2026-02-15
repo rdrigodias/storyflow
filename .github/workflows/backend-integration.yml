@@ -2,13 +2,7 @@ name: Backend Integration Tests
 
 on:
   push:
-    paths:
-      - 'backend/**'
-      - '.github/workflows/backend-integration.yml'
   pull_request:
-    paths:
-      - 'backend/**'
-      - '.github/workflows/backend-integration.yml'
 
 jobs:
   backend-integration:
