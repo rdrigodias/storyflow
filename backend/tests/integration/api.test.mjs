@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { createHmac } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 
 const port = 3200 + Math.floor(Math.random() * 500);
@@ -746,6 +746,76 @@ test('POST /storyboard/generate/start should deny expired user', async (t) => {
 
   assert.equal(forbiddenResponse.status, 403);
   assert.ok(forbiddenBody.error || forbiddenBody.message);
+});
+
+test('POST /storyboard/generate/start should return 400 for invalid projectId format', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'USER',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...buildStoryboardPayload('Payload com projectId invalido.'),
+      projectId: 'invalid-project-id',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error || body.message);
+});
+
+test('POST /storyboard/generate/start should return 404 when provided projectId does not exist', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-start-missing-project');
+
+  const response = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...buildStoryboardPayload('Payload com projectId inexistente.'),
+      projectId: randomUUID(),
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 404);
+  assert.ok(body.error || body.message);
+});
+
+test('POST /storyboard/generate/start should return 403 for project owned by another user', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const owner = await createAuthUser('integration-start-project-owner');
+  const outsider = await createAuthUser('integration-start-project-outsider');
+  const project = await createProject(owner.token, { title: 'Projeto Privado Start' });
+
+  const response = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${outsider.token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...buildStoryboardPayload('Payload com projectId de outro usuario.'),
+      projectId: project.id,
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 403);
+  assert.ok(body.error || body.message);
 });
 
 test('POST /storyboard/generate should return 400 for missing required fields', async () => {
