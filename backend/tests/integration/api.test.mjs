@@ -1272,6 +1272,84 @@ test('storyboard generate start should keep provided projectId when reused job f
   assert.ok(typeof projectBody.lastError === 'string');
 });
 
+test('storyboard generate start should clear lastError after succeeding on reused failed project', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-start-reuse-clear-last-error');
+  const existingProject = await createProject(token, { title: 'Projeto Limpeza Erro Original' });
+
+  const failStartResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...buildStoryboardPayload('__MOCK_FAIL__ falha para popular lastError'),
+      projectId: existingProject.id,
+      title: 'Projeto Limpeza Erro Falha',
+    }),
+  });
+  const failStartBody = await failStartResponse.json();
+
+  assert.equal(failStartResponse.status, 200);
+  assert.ok(failStartBody.jobId);
+  assert.equal(failStartBody.projectId, existingProject.id);
+
+  const failJobResult = await waitForJobResult(token, failStartBody.jobId);
+  assert.equal(failJobResult.status, 400);
+  assert.equal(failJobResult.body.status, 'failed');
+
+  const failedProjectResponse = await fetch(`${baseUrl}/projects/${existingProject.id}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const failedProjectBody = await failedProjectResponse.json();
+
+  assert.equal(failedProjectResponse.status, 200);
+  assert.equal(failedProjectBody.status, 'FAILED');
+  assert.ok(typeof failedProjectBody.lastError === 'string');
+
+  const successStartResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...buildStoryboardPayload('Execucao de sucesso para limpar erro anterior.'),
+      projectId: existingProject.id,
+      title: 'Projeto Limpeza Erro Sucesso',
+    }),
+  });
+  const successStartBody = await successStartResponse.json();
+
+  assert.equal(successStartResponse.status, 200);
+  assert.ok(successStartBody.jobId);
+  assert.equal(successStartBody.projectId, existingProject.id);
+
+  const successJobResult = await waitForJobResult(token, successStartBody.jobId);
+  assert.equal(successJobResult.status, 200);
+  assert.equal(successJobResult.body.status, 'completed');
+  assert.equal(successJobResult.body.projectId, existingProject.id);
+
+  const successProjectResponse = await fetch(`${baseUrl}/projects/${existingProject.id}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const successProjectBody = await successProjectResponse.json();
+
+  assert.equal(successProjectResponse.status, 200);
+  assert.equal(successProjectBody.id, existingProject.id);
+  assert.equal(successProjectBody.title, 'Projeto Limpeza Erro Sucesso');
+  assert.equal(successProjectBody.status, 'COMPLETED');
+  assert.equal(successProjectBody.lastError, null);
+});
+
 test('storyboard async job should complete successfully in mock mode', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
