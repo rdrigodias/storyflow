@@ -596,8 +596,9 @@ test('GET /me with invalid token signature should be unauthorized', async () => 
     role: 'USER',
     iat: Math.floor(Date.now() / 1000),
   });
-  const lastChar = validToken.slice(-1);
-  const tamperedToken = `${validToken.slice(0, -1)}${lastChar === 'a' ? 'b' : 'a'}`;
+  const [header, payload, signature] = validToken.split('.');
+  const tamperedSignature = `${signature[0] === 'a' ? 'b' : 'a'}${signature.slice(1)}`;
+  const tamperedToken = `${header}.${payload}.${tamperedSignature}`;
 
   const response = await fetch(`${baseUrl}/me`, {
     headers: {
@@ -634,6 +635,57 @@ test('PUT /user/apikey without token should be unauthorized', async () => {
   const response = await fetch(`${baseUrl}/user/apikey`, {
     method: 'PUT',
     headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      apiKey: `AIza${'A'.repeat(30)}`,
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.ok(body.error || body.message);
+});
+
+test('PUT /user/apikey with invalid token signature should be unauthorized', async () => {
+  const validToken = signJwt({
+    id: randomUUID(),
+    role: 'USER',
+    iat: Math.floor(Date.now() / 1000),
+  });
+  const [header, payload, signature] = validToken.split('.');
+  const tamperedSignature = `${signature[0] === 'a' ? 'b' : 'a'}${signature.slice(1)}`;
+  const tamperedToken = `${header}.${payload}.${tamperedSignature}`;
+
+  const response = await fetch(`${baseUrl}/user/apikey`, {
+    method: 'PUT',
+    headers: {
+      authorization: `Bearer ${tamperedToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      apiKey: `AIza${'A'.repeat(30)}`,
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.ok(body.error || body.message);
+});
+
+test('PUT /user/apikey with expired token should be unauthorized', async () => {
+  const nowInSeconds = Math.floor(Date.now() / 1000);
+  const expiredToken = signJwt({
+    id: randomUUID(),
+    role: 'USER',
+    iat: nowInSeconds - 120,
+    exp: nowInSeconds - 60,
+  });
+
+  const response = await fetch(`${baseUrl}/user/apikey`, {
+    method: 'PUT',
+    headers: {
+      authorization: `Bearer ${expiredToken}`,
       'content-type': 'application/json',
     },
     body: JSON.stringify({
