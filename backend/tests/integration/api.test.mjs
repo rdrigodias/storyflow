@@ -299,6 +299,68 @@ test('GET /ready should return ready or not_ready', async () => {
   assert.ok(typeof body.timestamp === 'string');
 });
 
+test('POST /register should return 400 when email is already registered', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { user } = await createAuthUser('integration-register-duplicate');
+  const duplicateResponse = await fetch(`${baseUrl}/register`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: user.email,
+      password: '123456',
+    }),
+  });
+  const duplicateBody = await duplicateResponse.json();
+
+  assert.equal(duplicateResponse.status, 400);
+  assert.ok(duplicateBody.error || duplicateBody.message);
+});
+
+test('POST /login should return 400 for invalid password', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { user } = await createAuthUser('integration-login-invalid-password');
+  const response = await fetch(`${baseUrl}/login`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: user.email,
+      password: 'senha-incorreta',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error || body.message);
+});
+
+test('POST /login should deny banned user', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { user } = await createAuthUser('integration-login-banned');
+  await updateUserStatus(user.id, 'BANNED');
+
+  const response = await fetch(`${baseUrl}/login`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: user.email,
+      password: '123456',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 403);
+  assert.ok(body.error || body.message);
+});
+
 test('POST /login should deny pending user', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
