@@ -928,6 +928,29 @@ test('authenticated user should create and list projects when DB is ready', asyn
   assert.ok(projects.some((project) => project.id === createdProject.id));
 });
 
+test('authenticated user should list only own projects when DB is ready', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const userA = await createAuthUser('integration-list-own-a');
+  const userB = await createAuthUser('integration-list-own-b');
+
+  const projectA = await createProject(userA.token, { title: 'Projeto Usuario A' });
+  const projectB = await createProject(userB.token, { title: 'Projeto Usuario B' });
+
+  const listProjectsResponse = await fetch(`${baseUrl}/projects`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${userA.token}`,
+    },
+  });
+  const projects = await listProjectsResponse.json();
+
+  assert.equal(listProjectsResponse.status, 200);
+  assert.ok(Array.isArray(projects));
+  assert.ok(projects.some((project) => project.id === projectA.id && project.userId === userA.user.id));
+  assert.ok(!projects.some((project) => project.id === projectB.id));
+});
+
 test('admin should list projects from different users when DB is ready', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
