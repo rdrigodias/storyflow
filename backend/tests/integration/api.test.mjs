@@ -1167,6 +1167,84 @@ test('storyboard generate start should refresh inputJson snapshot when reusing p
   assert.deepEqual(projectBody.inputJson?.characterReferences, []);
 });
 
+test('storyboard generate start should persist sanitized characterReferences snapshot when references are provided', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-start-reuse-character-references');
+  const existingProject = await createProject(token, {
+    title: 'Projeto Referencias Original',
+    inputJson: { legacy: true, marker: 'old-reference-snapshot' },
+  });
+
+  const payload = {
+    characterReferences: [
+      {
+        name: 'Heroi',
+        base64Image: 'dGVzdA==',
+        mimeType: 'image/png',
+        characteristic: 'Lider',
+        context: 'Cidade',
+      },
+    ],
+    allCharactersInfo: [
+      {
+        name: 'Heroi',
+        characteristic: 'Lider',
+        context: 'Cidade',
+      },
+    ],
+    scriptOrSrtContent: 'Cena com referencia visual do heroi.',
+    isSrt: false,
+    imageStyle: 'Filme Realista',
+    projectId: existingProject.id,
+    title: 'Projeto Referencias Atualizado',
+  };
+
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const startBody = await startResponse.json();
+
+  assert.equal(startResponse.status, 200);
+  assert.ok(startBody.jobId);
+  assert.equal(startBody.projectId, existingProject.id);
+
+  const jobResult = await waitForJobResult(token, startBody.jobId);
+  assert.equal(jobResult.status, 200);
+  assert.equal(jobResult.body.status, 'completed');
+  assert.equal(jobResult.body.projectId, existingProject.id);
+
+  const projectResponse = await fetch(`${baseUrl}/projects/${existingProject.id}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const projectBody = await projectResponse.json();
+
+  assert.equal(projectResponse.status, 200);
+  assert.equal(projectBody.title, 'Projeto Referencias Atualizado');
+  assert.equal(projectBody.status, 'COMPLETED');
+  assert.equal(projectBody.inputJson?.legacy, undefined);
+  assert.equal(projectBody.inputJson?.marker, undefined);
+  assert.deepEqual(projectBody.inputJson?.allCharactersInfo, payload.allCharactersInfo);
+  assert.deepEqual(projectBody.inputJson?.characterReferences, [
+    {
+      name: 'Heroi',
+      mimeType: 'image/png',
+      characteristic: 'Lider',
+      context: 'Cidade',
+      hasReferenceImage: true,
+    },
+  ]);
+  assert.equal(projectBody.inputJson?.characterReferences?.[0]?.base64Image, undefined);
+});
+
 test('storyboard generate start should persist default snapshot values when optional fields are omitted', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
