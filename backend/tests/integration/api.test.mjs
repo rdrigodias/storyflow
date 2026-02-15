@@ -1868,6 +1868,114 @@ test('POST /storyboard/regenerate-image should return 400 for missing required f
   assert.ok(body.error);
 });
 
+test('POST /storyboard/generate should return 400 when characterReferences exceeds max size', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'user',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/storyboard/generate`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...buildStoryboardPayload('Conteudo minimo valido para schema generate.'),
+      characterReferences: Array.from({ length: 31 }, (_, index) => ({
+        name: `Character ${index + 1}`,
+        base64Image: 'ZmFrZS1pbWFnZS1iYXNlNjQ=',
+        mimeType: 'image/png',
+      })),
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error);
+});
+
+test('POST /storyboard/generate should return 400 when allCharactersInfo exceeds max size', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'user',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/storyboard/generate`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...buildStoryboardPayload('Conteudo minimo valido para schema generate.'),
+      allCharactersInfo: Array.from({ length: 51 }, (_, index) => ({
+        name: `Character ${index + 1}`,
+      })),
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error);
+});
+
+test('POST /storyboard/regenerate-image should return 400 when characterReferences exceeds max size', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'user',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/storyboard/regenerate-image`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...buildRegenerateImagePayload(),
+      characterReferences: Array.from({ length: 31 }, (_, index) => ({
+        name: `Character ${index + 1}`,
+        base64Image: 'ZmFrZS1pbWFnZS1iYXNlNjQ=',
+        mimeType: 'image/png',
+      })),
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error);
+});
+
+test('POST /storyboard/regenerate-image should return 400 when allCharactersInfo exceeds max size', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'user',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/storyboard/regenerate-image`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...buildRegenerateImagePayload(),
+      allCharactersInfo: Array.from({ length: 51 }, (_, index) => ({
+        name: `Character ${index + 1}`,
+      })),
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error);
+});
+
 test('POST /storyboard/generate should return 404 when authenticated user does not exist', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
