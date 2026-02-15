@@ -510,6 +510,44 @@ test('PUT /user/apikey without token should be unauthorized', async () => {
   assert.ok(body.error || body.message);
 });
 
+test('PUT /user/apikey should return 400 when apiKey is missing', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-apikey-missing');
+  const response = await fetch(`${baseUrl}/user/apikey`, {
+    method: 'PUT',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error || body.message);
+});
+
+test('PUT /user/apikey should return 400 when apiKey is not a string', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-apikey-non-string');
+  const response = await fetch(`${baseUrl}/user/apikey`, {
+    method: 'PUT',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      apiKey: 123,
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error || body.message);
+});
+
 test('PUT /user/apikey should return 400 for invalid key format', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
