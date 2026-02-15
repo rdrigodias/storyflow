@@ -3,10 +3,20 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createHmac } from 'node:crypto';
+import { PrismaClient } from '@prisma/client';
 
 const port = 3200 + Math.floor(Math.random() * 500);
 const baseUrl = `http://127.0.0.1:${port}`;
 const jwtSecret = process.env.JWT_SECRET || 'test-jwt-secret';
+const databaseUrl =
+  process.env.DATABASE_URL || 'postgresql://user:password@127.0.0.1:5432/storyflow?schema=public';
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: databaseUrl,
+    },
+  },
+});
 let serverProcess;
 let serverLogs = '';
 let databaseReady = false;
@@ -83,6 +93,13 @@ async function createProject(token, payload = { title: 'Projeto Integração' })
   assert.ok(createdProject.id);
 
   return createdProject;
+}
+
+async function updateUserStatus(userId, status) {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { status },
+  });
 }
 
 function buildStoryboardPayload(scriptOrSrtContent) {
@@ -229,8 +246,7 @@ before(async () => {
       PORT: String(port),
       JWT_SECRET: jwtSecret,
       STORYBOARD_MOCK_MODE: '1',
-      DATABASE_URL:
-        process.env.DATABASE_URL || 'postgresql://user:password@127.0.0.1:5432/storyflow?schema=public',
+      DATABASE_URL: databaseUrl,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -248,6 +264,8 @@ before(async () => {
 });
 
 after(async () => {
+  await prisma.$disconnect().catch(() => {});
+
   if (!serverProcess) return;
   if (serverProcess.exitCode !== null) return;
 
@@ -1130,6 +1148,46 @@ test('storyboard regenerate-image should deny banned user', async (t) => {
   const banBody = await banResponse.json();
   assert.equal(banResponse.status, 200);
   assert.ok(banBody.message);
+
+  const forbiddenResponse = await fetch(`${baseUrl}/storyboard/regenerate-image`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildRegenerateImagePayload()),
+  });
+  const forbiddenBody = await forbiddenResponse.json();
+
+  assert.equal(forbiddenResponse.status, 403);
+  assert.ok(forbiddenBody.error || forbiddenBody.message);
+});
+
+test('storyboard generate should deny expired user', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { user, token } = await createAuthUser('integration-generate-expired');
+  await updateUserStatus(user.id, 'EXPIRED');
+
+  const forbiddenResponse = await fetch(`${baseUrl}/storyboard/generate`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildStoryboardPayload('Teste de geracao bloqueada por expiracao.')),
+  });
+  const forbiddenBody = await forbiddenResponse.json();
+
+  assert.equal(forbiddenResponse.status, 403);
+  assert.ok(forbiddenBody.error || forbiddenBody.message);
+});
+
+test('storyboard regenerate-image should deny expired user', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { user, token } = await createAuthUser('integration-regenerate-expired');
+  await updateUserStatus(user.id, 'EXPIRED');
 
   const forbiddenResponse = await fetch(`${baseUrl}/storyboard/regenerate-image`, {
     method: 'POST',
