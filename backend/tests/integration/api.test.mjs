@@ -563,3 +563,60 @@ test('storyboard events stream should deny access for another user', async (t) =
   assert.equal(forbiddenResponse.status, 403);
   assert.ok(forbiddenBody.error);
 });
+
+test('storyboard job result should deny access for another user', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const owner = await createAuthUser('integration-result-owner');
+  const outsider = await createAuthUser('integration-result-outsider');
+
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${owner.token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildStoryboardPayload('Cena privada resultado um. Cena privada resultado dois.')),
+  });
+  const startBody = await startResponse.json();
+
+  assert.equal(startResponse.status, 200);
+  assert.ok(startBody.jobId);
+
+  const forbiddenResponse = await fetch(`${baseUrl}/storyboard/jobs/${startBody.jobId}/result`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${outsider.token}`,
+    },
+  });
+  const forbiddenBody = await forbiddenResponse.json();
+
+  assert.equal(forbiddenResponse.status, 403);
+  assert.ok(forbiddenBody.error);
+});
+
+test('storyboard job result should require auth token', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-result-auth');
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildStoryboardPayload('Cena auth resultado um. Cena auth resultado dois.')),
+  });
+  const startBody = await startResponse.json();
+
+  assert.equal(startResponse.status, 200);
+  assert.ok(startBody.jobId);
+
+  const unauthorizedResponse = await fetch(`${baseUrl}/storyboard/jobs/${startBody.jobId}/result`, {
+    method: 'GET',
+  });
+  const unauthorizedBody = await unauthorizedResponse.json();
+
+  assert.equal(unauthorizedResponse.status, 401);
+  assert.ok(unauthorizedBody.error || unauthorizedBody.message);
+});
