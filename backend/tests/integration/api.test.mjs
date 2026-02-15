@@ -363,6 +363,72 @@ test('storyboard job endpoints should return 404 when job does not exist', async
   assert.ok(eventsBody.error);
 });
 
+test('POST /projects should return 400 for invalid payload', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'user',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/projects`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ title: '' }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error);
+});
+
+test('POST /storyboard/generate/start should return 400 for missing required fields', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'user',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error);
+});
+
+test('POST /storyboard/generate/start should return 400 for invalid pacing range', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'user',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...buildStoryboardPayload('Conteudo minimo valido para schema base.'),
+      pacing: 5,
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error);
+});
+
 test('authenticated user should create and list projects when DB is ready', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
