@@ -353,6 +353,60 @@ test('POST /register should return 400 for short password', async () => {
   assert.ok(body.error || body.message);
 });
 
+test('POST /register should return 400 for invalid plan value', async () => {
+  const response = await fetch(`${baseUrl}/register`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: `register-invalid-plan-${Date.now()}@example.com`,
+      password: '123456',
+      plan: 'INVALID_PLAN',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error || body.message);
+});
+
+test('POST /register should return 400 when whatsapp is blank', async () => {
+  const response = await fetch(`${baseUrl}/register`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: `register-whatsapp-blank-${Date.now()}@example.com`,
+      password: '123456',
+      whatsapp: '   ',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error || body.message);
+});
+
+test('POST /register should return 400 when whatsapp exceeds max length', async () => {
+  const response = await fetch(`${baseUrl}/register`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: `register-whatsapp-long-${Date.now()}@example.com`,
+      password: '123456',
+      whatsapp: '1'.repeat(31),
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error || body.message);
+});
+
 test('POST /login should return 400 for invalid email format', async () => {
   const response = await fetch(`${baseUrl}/login`, {
     method: 'POST',
