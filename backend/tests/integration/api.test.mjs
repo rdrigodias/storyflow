@@ -39,6 +39,52 @@ function signJwt(payload) {
   return `${content}.${signature}`;
 }
 
+async function createAuthUser(label = 'integration') {
+  const uniqueId = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const email = `${label}-${uniqueId}@example.com`;
+  const password = '123456';
+
+  const registerResponse = await fetch(`${baseUrl}/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  const registerBody = await registerResponse.json();
+
+  assert.equal(registerResponse.status, 200);
+  assert.equal(registerBody.success, true);
+  assert.ok(registerBody.user?.id);
+  assert.ok(registerBody.user?.role);
+
+  const token = signJwt({
+    id: registerBody.user.id,
+    role: registerBody.user.role,
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  return {
+    user: registerBody.user,
+    token,
+  };
+}
+
+async function createProject(token, payload = { title: 'Projeto Integração' }) {
+  const createProjectResponse = await fetch(`${baseUrl}/projects`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const createdProject = await createProjectResponse.json();
+
+  assert.equal(createProjectResponse.status, 200);
+  assert.ok(createdProject.id);
+
+  return createdProject;
+}
+
 before(async () => {
   serverProcess = spawn('node', ['dist/server.js'], {
     cwd: process.cwd(),
@@ -123,42 +169,11 @@ test('POST /storyboard/generate/start without token should fail auth', async () 
 test('authenticated user should create and list projects when DB is ready', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
-  const uniqueId = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-  const email = `integration-${uniqueId}@example.com`;
-  const password = '123456';
+  const { user, token } = await createAuthUser('integration-create-list');
+  const createdProject = await createProject(token, { title: 'Projeto Integração' });
 
-  const registerResponse = await fetch(`${baseUrl}/register`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  const registerBody = await registerResponse.json();
-
-  assert.equal(registerResponse.status, 200);
-  assert.equal(registerBody.success, true);
-  assert.ok(registerBody.user?.id);
-  assert.ok(registerBody.user?.role);
-
-  const token = signJwt({
-    id: registerBody.user.id,
-    role: registerBody.user.role,
-    iat: Math.floor(Date.now() / 1000),
-  });
-
-  const createProjectResponse = await fetch(`${baseUrl}/projects`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${token}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({ title: 'Projeto Integração' }),
-  });
-  const createdProject = await createProjectResponse.json();
-
-  assert.equal(createProjectResponse.status, 200);
   assert.equal(createdProject.title, 'Projeto Integração');
-  assert.equal(createdProject.userId, registerBody.user.id);
-  assert.ok(createdProject.id);
+  assert.equal(createdProject.userId, user.id);
 
   const listProjectsResponse = await fetch(`${baseUrl}/projects`, {
     method: 'GET',
@@ -171,4 +186,89 @@ test('authenticated user should create and list projects when DB is ready', asyn
   assert.equal(listProjectsResponse.status, 200);
   assert.ok(Array.isArray(projects));
   assert.ok(projects.some((project) => project.id === createdProject.id));
+});
+
+test('authenticated user should update project fields when DB is ready', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-update');
+  const createdProject = await createProject(token, { title: 'Projeto Antes' });
+
+  const updatePayload = {
+    title: 'Projeto Depois',
+    resultJson: {
+      scenes: [{ sceneNumber: 1, visualDescription: 'Cena de teste', imageUrl: 'https://example.com/image.png' }],
+    },
+    lastError: null,
+  };
+
+  const updateResponse = await fetch(`${baseUrl}/projects/${createdProject.id}`, {
+    method: 'PUT',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(updatePayload),
+  });
+  const updatedProject = await updateResponse.json();
+
+  assert.equal(updateResponse.status, 200);
+  assert.equal(updatedProject.title, 'Projeto Depois');
+  assert.ok(Array.isArray(updatedProject.resultJson?.scenes));
+  assert.equal(updatedProject.resultJson.scenes.length, 1);
+
+  const getResponse = await fetch(`${baseUrl}/projects/${createdProject.id}`, {
+    method: 'GET',
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const fetchedProject = await getResponse.json();
+
+  assert.equal(getResponse.status, 200);
+  assert.equal(fetchedProject.title, 'Projeto Depois');
+});
+
+test('authenticated user should delete own project when DB is ready', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-delete');
+  const createdProject = await createProject(token, { title: 'Projeto Para Excluir' });
+
+  const deleteResponse = await fetch(`${baseUrl}/projects/${createdProject.id}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const deleteBody = await deleteResponse.json();
+
+  assert.equal(deleteResponse.status, 200);
+  assert.equal(deleteBody.success, true);
+
+  const getAfterDeleteResponse = await fetch(`${baseUrl}/projects/${createdProject.id}`, {
+    method: 'GET',
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const getAfterDeleteBody = await getAfterDeleteResponse.json();
+
+  assert.equal(getAfterDeleteResponse.status, 404);
+  assert.ok(getAfterDeleteBody.error);
+});
+
+test('user should not update project from another user when DB is ready', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const owner = await createAuthUser('integration-owner');
+  const outsider = await createAuthUser('integration-outsider');
+  const project = await createProject(owner.token, { title: 'Projeto Privado' });
+
+  const forbiddenUpdateResponse = await fetch(`${baseUrl}/projects/${project.id}`, {
+    method: 'PUT',
+    headers: {
+      authorization: `Bearer ${outsider.token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ title: 'Tentativa Indevida' }),
+  });
+  const forbiddenUpdateBody = await forbiddenUpdateResponse.json();
+
+  assert.equal(forbiddenUpdateResponse.status, 403);
+  assert.ok(forbiddenUpdateBody.error);
 });
