@@ -251,6 +251,28 @@ function sendError(
   });
 }
 
+function sendPayload(reply: any, payload: unknown, statusCode = 200) {
+  return reply.code(statusCode).send(payload);
+}
+
+function sendSuccess(reply: any, extra: Record<string, unknown> = {}) {
+  return sendPayload(reply, {
+    success: true,
+    ...extra,
+  });
+}
+
+function sendMessage(reply: any, message: string, extra: Record<string, unknown> = {}) {
+  return sendPayload(reply, {
+    message,
+    ...extra,
+  });
+}
+
+function sendAccepted(reply: any, payload: unknown) {
+  return sendPayload(reply, payload, 202);
+}
+
 type ErrorFallback = {
   statusCode: number;
   message: string;
@@ -467,7 +489,7 @@ app.post('/register', async (request: any, reply: any) => {
       },
     });
 
-    return reply.send({ success: true, user });
+    return sendSuccess(reply, { user });
   } catch (error: any) {
     return handleRouteError(reply, error, { statusCode: 400, message: 'Falha no registro.' });
   }
@@ -603,7 +625,7 @@ app.put(
       data: { googleApiKey: cleanKey },
     });
 
-    return reply.send({ success: true });
+    return sendSuccess(reply);
   }
 );
 
@@ -711,7 +733,7 @@ app.delete('/projects/:projectId', async (request: any, reply: any) => {
     }
 
     await prisma.storyboardProject.delete({ where: { id: projectId } });
-    return reply.send({ success: true });
+    return sendSuccess(reply);
   } catch (error: any) {
     return handleRouteError(reply, error, { statusCode: 400, message: 'Falha ao excluir projeto.' });
   }
@@ -928,7 +950,7 @@ app.get('/storyboard/jobs/:jobId/result', async (request: any, reply: any) => {
     }
 
     if (job.status === 'running') {
-      return reply.code(202).send({
+      return sendAccepted(reply, {
         projectId: job.projectId,
         status: job.status,
         message: job.message,
@@ -1021,7 +1043,7 @@ app.post('/admin/change-plan', async (req: any, reply: any) => {
         where: { email },
         data: { status: Status.BANNED },
       });
-      return reply.send({ message: 'Usuário banido' });
+      return sendMessage(reply, 'Usuário banido');
     }
 
     const plans: Record<string, number> = {
@@ -1050,7 +1072,7 @@ app.post('/admin/change-plan', async (req: any, reply: any) => {
       } as any,
     });
 
-    return reply.send({ message: 'Plano atualizado' });
+    return sendMessage(reply, 'Plano atualizado');
   } catch (e: any) {
     return handleRouteError(reply, e, { statusCode: 400, message: 'Falha ao atualizar plano.' });
   }
