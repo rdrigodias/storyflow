@@ -532,3 +532,34 @@ test('storyboard events stream should emit failed event in mock mode', async (t)
   assert.equal(failed.data.status, 'failed');
   assert.ok(failed.data.error || failed.data.message);
 });
+
+test('storyboard events stream should deny access for another user', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const owner = await createAuthUser('integration-sse-owner');
+  const outsider = await createAuthUser('integration-sse-outsider');
+
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${owner.token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildStoryboardPayload('Cena privada um. Cena privada dois.')),
+  });
+  const startBody = await startResponse.json();
+
+  assert.equal(startResponse.status, 200);
+  assert.ok(startBody.jobId);
+
+  const forbiddenResponse = await fetch(`${baseUrl}/storyboard/jobs/${startBody.jobId}/events`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${outsider.token}`,
+    },
+  });
+  const forbiddenBody = await forbiddenResponse.json();
+
+  assert.equal(forbiddenResponse.status, 403);
+  assert.ok(forbiddenBody.error);
+});
