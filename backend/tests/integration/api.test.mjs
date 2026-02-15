@@ -777,6 +777,8 @@ test('PUT /user/apikey should persist valid key and expose it in GET /me', async
 
   assert.equal(saveResponse.status, 200);
   assert.equal(saveBody.success, true);
+  assert.equal(saveBody.error, undefined);
+  assert.equal(saveBody.message, undefined);
 
   const meResponse = await fetch(`${baseUrl}/me`, {
     method: 'GET',
@@ -1372,7 +1374,8 @@ test('POST /admin/change-plan should update user plan for admin role when DB is 
   const changePlanBody = await changePlanResponse.json();
 
   assert.equal(changePlanResponse.status, 200);
-  assert.ok(changePlanBody.message);
+  assert.equal(changePlanBody.message, 'Plano atualizado');
+  assert.equal(changePlanBody.error, undefined);
 
   const usersResponse = await fetch(`${baseUrl}/admin/users`, {
     method: 'GET',
@@ -1671,6 +1674,7 @@ test('POST /storyboard/generate/start should deny banned user', async (t) => {
   const banBody = await banResponse.json();
   assert.equal(banResponse.status, 200);
   assert.equal(banBody.message, 'Usuário banido');
+  assert.equal(banBody.error, undefined);
 
   const forbiddenResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
     method: 'POST',
@@ -2149,6 +2153,8 @@ test('authenticated user should delete own project when DB is ready', async (t) 
 
   assert.equal(deleteResponse.status, 200);
   assert.equal(deleteBody.success, true);
+  assert.equal(deleteBody.error, undefined);
+  assert.equal(deleteBody.message, undefined);
 
   const getAfterDeleteResponse = await fetch(`${baseUrl}/projects/${createdProject.id}`, {
     method: 'GET',
@@ -2300,6 +2306,8 @@ test('admin should delete project from another user when DB is ready', async (t)
 
   assert.equal(adminDeleteResponse.status, 200);
   assert.equal(adminDeleteBody.success, true);
+  assert.equal(adminDeleteBody.error, undefined);
+  assert.equal(adminDeleteBody.message, undefined);
 
   const ownerGetResponse = await fetch(`${baseUrl}/projects/${project.id}`, {
     method: 'GET',
@@ -2993,6 +3001,64 @@ test('storyboard job result should require auth token', async (t) => {
   assert.ok(unauthorizedBody.error || unauthorizedBody.message);
 });
 
+test('storyboard job result should return accepted contract while running', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-result-running-contract');
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(
+      buildStoryboardPayload(
+        'Cena contrato running um. Cena contrato running dois. Cena contrato running três. Cena contrato running quatro.'
+      )
+    ),
+  });
+  const startBody = await startResponse.json();
+
+  assert.equal(startResponse.status, 200);
+  assert.ok(startBody.jobId);
+  assert.equal(startBody.status, 'running');
+
+  let acceptedBody;
+  const timeoutAt = Date.now() + 1500;
+
+  while (Date.now() < timeoutAt) {
+    const pendingResponse = await fetch(`${baseUrl}/storyboard/jobs/${startBody.jobId}/result`, {
+      method: 'GET',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+    const pendingBody = await pendingResponse.json();
+
+    if (pendingResponse.status === 202) {
+      acceptedBody = pendingBody;
+      break;
+    }
+
+    if (pendingBody?.status !== 'running') {
+      break;
+    }
+
+    await sleep(20);
+  }
+
+  assert.ok(acceptedBody, 'Expected to capture at least one 202 running response.');
+  assert.equal(acceptedBody.projectId, startBody.projectId);
+  assert.equal(acceptedBody.status, 'running');
+  assert.equal(typeof acceptedBody.message, 'string');
+  assert.equal(typeof acceptedBody.updatedAt, 'number');
+  assert.equal(acceptedBody.error, undefined);
+
+  const finalResult = await waitForJobResult(token, startBody.jobId);
+  assert.equal(finalResult.status, 200);
+  assert.equal(finalResult.body.status, 'completed');
+});
+
 test('storyboard generate should deny banned user', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
@@ -3017,6 +3083,7 @@ test('storyboard generate should deny banned user', async (t) => {
   const banBody = await banResponse.json();
   assert.equal(banResponse.status, 200);
   assert.equal(banBody.message, 'Usuário banido');
+  assert.equal(banBody.error, undefined);
 
   const forbiddenResponse = await fetch(`${baseUrl}/storyboard/generate`, {
     method: 'POST',
@@ -3056,6 +3123,7 @@ test('storyboard regenerate-image should deny banned user', async (t) => {
   const banBody = await banResponse.json();
   assert.equal(banResponse.status, 200);
   assert.equal(banBody.message, 'Usuário banido');
+  assert.equal(banBody.error, undefined);
 
   const forbiddenResponse = await fetch(`${baseUrl}/storyboard/regenerate-image`, {
     method: 'POST',
