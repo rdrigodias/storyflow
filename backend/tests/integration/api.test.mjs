@@ -847,6 +847,49 @@ test('GET /admin/users without token should be unauthorized', async () => {
   assert.ok(body.message || body.error);
 });
 
+test('GET /admin/users with invalid token signature should be unauthorized', async () => {
+  const validToken = signJwt({
+    id: randomUUID(),
+    role: 'USER',
+    iat: Math.floor(Date.now() / 1000),
+  });
+  const [header, payload, signature] = validToken.split('.');
+  const tamperedSignature = `${signature[0] === 'a' ? 'b' : 'a'}${signature.slice(1)}`;
+  const tamperedToken = `${header}.${payload}.${tamperedSignature}`;
+
+  const response = await fetch(`${baseUrl}/admin/users`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${tamperedToken}`,
+    },
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.ok(body.message || body.error);
+});
+
+test('GET /admin/users with expired token should be unauthorized', async () => {
+  const nowInSeconds = Math.floor(Date.now() / 1000);
+  const expiredToken = signJwt({
+    id: randomUUID(),
+    role: 'USER',
+    iat: nowInSeconds - 120,
+    exp: nowInSeconds - 60,
+  });
+
+  const response = await fetch(`${baseUrl}/admin/users`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${expiredToken}`,
+    },
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.ok(body.message || body.error);
+});
+
 test('GET /admin/users with non-admin role should be forbidden', async () => {
   const token = signJwt({
     id: 'synthetic-user-id',
@@ -870,6 +913,59 @@ test('POST /admin/change-plan without token should be unauthorized', async () =>
   const response = await fetch(`${baseUrl}/admin/change-plan`, {
     method: 'POST',
     headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: 'test@example.com',
+      newPlan: 'PLAN_30_DAYS',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.ok(body.message || body.error);
+});
+
+test('POST /admin/change-plan with invalid token signature should be unauthorized', async () => {
+  const validToken = signJwt({
+    id: randomUUID(),
+    role: 'USER',
+    iat: Math.floor(Date.now() / 1000),
+  });
+  const [header, payload, signature] = validToken.split('.');
+  const tamperedSignature = `${signature[0] === 'a' ? 'b' : 'a'}${signature.slice(1)}`;
+  const tamperedToken = `${header}.${payload}.${tamperedSignature}`;
+
+  const response = await fetch(`${baseUrl}/admin/change-plan`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${tamperedToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: 'test@example.com',
+      newPlan: 'PLAN_30_DAYS',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.ok(body.message || body.error);
+});
+
+test('POST /admin/change-plan with expired token should be unauthorized', async () => {
+  const nowInSeconds = Math.floor(Date.now() / 1000);
+  const expiredToken = signJwt({
+    id: randomUUID(),
+    role: 'USER',
+    iat: nowInSeconds - 120,
+    exp: nowInSeconds - 60,
+  });
+
+  const response = await fetch(`${baseUrl}/admin/change-plan`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${expiredToken}`,
       'content-type': 'application/json',
     },
     body: JSON.stringify({
