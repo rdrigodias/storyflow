@@ -708,6 +708,52 @@ test('POST /storyboard/regenerate-image should return 400 for missing required f
   assert.ok(body.error);
 });
 
+test('POST /storyboard/generate should return 404 when authenticated user does not exist', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const token = signJwt({
+    id: `missing-user-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+    role: 'USER',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/storyboard/generate`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildStoryboardPayload('Conteudo para usuario inexistente.')),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 404);
+  assert.ok(body.error || body.message);
+});
+
+test('POST /storyboard/regenerate-image should return 404 when authenticated user does not exist', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const token = signJwt({
+    id: `missing-user-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+    role: 'USER',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/storyboard/regenerate-image`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildRegenerateImagePayload()),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 404);
+  assert.ok(body.error || body.message);
+});
+
 test('authenticated user should create and list projects when DB is ready', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
