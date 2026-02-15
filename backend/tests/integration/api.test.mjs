@@ -293,6 +293,76 @@ test('POST /storyboard/generate/start without token should fail auth', async () 
   assert.ok(body.error || body.message);
 });
 
+test('project routes should return 400 for invalid projectId format', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'user',
+    iat: Math.floor(Date.now() / 1000),
+  });
+  const invalidProjectId = 'invalid-project-id';
+
+  const getResponse = await fetch(`${baseUrl}/projects/${invalidProjectId}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const getBody = await getResponse.json();
+  assert.equal(getResponse.status, 400);
+  assert.ok(getBody.error);
+
+  const updateResponse = await fetch(`${baseUrl}/projects/${invalidProjectId}`, {
+    method: 'PUT',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ title: 'Nao deve atualizar' }),
+  });
+  const updateBody = await updateResponse.json();
+  assert.equal(updateResponse.status, 400);
+  assert.ok(updateBody.error);
+
+  const deleteResponse = await fetch(`${baseUrl}/projects/${invalidProjectId}`, {
+    method: 'DELETE',
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const deleteBody = await deleteResponse.json();
+  assert.equal(deleteResponse.status, 400);
+  assert.ok(deleteBody.error);
+});
+
+test('storyboard job endpoints should return 404 when job does not exist', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'user',
+    iat: Math.floor(Date.now() / 1000),
+  });
+  const missingJobId = 'job-not-found';
+
+  const resultResponse = await fetch(`${baseUrl}/storyboard/jobs/${missingJobId}/result`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const resultBody = await resultResponse.json();
+  assert.equal(resultResponse.status, 404);
+  assert.ok(resultBody.error);
+
+  const eventsResponse = await fetch(`${baseUrl}/storyboard/jobs/${missingJobId}/events`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const eventsBody = await eventsResponse.json();
+  assert.equal(eventsResponse.status, 404);
+  assert.ok(eventsBody.error);
+});
+
 test('authenticated user should create and list projects when DB is ready', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
