@@ -1,0 +1,125 @@
+import Fastify from 'fastify';
+import jwt from '@fastify/jwt';
+import { PrismaClient } from '@prisma/client';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+const prisma = new PrismaClient();
+const app = Fastify({ logger: true });
+
+/* =========================
+   JWT CONFIG
+========================= */
+app.register(jwt, {
+  secret: process.env.JWT_SECRET || 'super-secret',
+});
+
+/* =========================
+   AUTH DECORATOR
+========================= */
+app.decorate('authenticate', async function (request: any, reply: any) {
+  try {
+    await request.jwtVerify();
+  } catch {
+    return reply.code(401).send({ error: 'Unauthorized' });
+  }
+});
+
+/* =========================
+   GOOGLE API KEY VALIDATION
+========================= */
+async function validateGoogleApiKey(apiKey: string) {
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+
+    const model = genAI.getGenerativeModel({
+      model: 'models/gemini-1.5-pro',
+    });
+
+    await model.generateContent('ping');
+
+    return { valid: true as const };
+  } catch (e: any) {
+    const msg = String(e?.message || '');
+
+    if (msg.includes('API key not valid')) {
+      return { valid: false as const, reason: 'INVALID_KEY' };
+    }
+    if (msg.includes('not found') || msg.includes('404')) {
+      return { valid: false as const, reason: 'MODEL_NOT_SUPPORTED' };
+    }
+    if (msg.includes('429')) {
+      return { valid: false as const, reason: 'QUOTA_EXCEEDED' };
+    }
+    if (msg.includes('403')) {
+      return { valid: false as const, reason: 'PERMISSION_DENIED' };
+    }
+
+    return { valid: false as const, reason: 'UNKNOWN_ERROR', details: msg };
+  }
+}
+
+/* =========================
+   SAVE USER API KEY
+========================= */
+app.put(
+  '/user/apikey',
+  { preHandler: [app.authenticate] },
+  async (request: any, reply: any) => {
+    const { apiKey } = request.body as { apiKey?: string };
+
+    if (!apiKey || typeof apiKey !== 'string') {
+      return reply.code(400).send({ error: 'API Key é obrigatória' });
+    }
+
+    const cleanKey = apiKey.trim();
+    const validation = await validateGoogleApiKey(cleanKey);
+
+    if (!validation.valid) {
+      switch (validation.reason) {
+        case 'INVALID_KEY':
+          return reply.code(400).send({
+            error: 'Chave inválida. Verifique no Google AI Studio.',
+          });
+        case 'MODEL_NOT_SUPPORTED':
+          return reply.code(500).send({
+            error: 'Erro interno: modelo não suportado para validação.',
+          });
+        case 'QUOTA_EXCEEDED':
+          return reply.code(429).send({
+            error: 'Quota excedida ou billing ausente no Google Cloud.',
+          });
+        case 'PERMISSION_DENIED':
+          return reply.code(403).send({
+            error: 'Chave válida, mas com restrição de IP/referrer/API.',
+          });
+        default:
+          request.log.error(validation.details);
+          return reply.code(500).send({
+            error: 'Erro temporário ao validar a chave. Tente novamente.',
+          });
+      }
+    }
+
+    await prisma.user.update({
+      where: { id: request.user.id },
+      data: { googleApiKey: cleanKey },
+    });
+
+    return reply.send({ success: true });
+  }
+);
+
+/* =========================
+   START SERVER
+========================= */
+const start = async () => {
+  try {
+    await app.listen({ port: 3001, host: '0.0.0.0' });
+    console.log('🚀 Server running on port 3001');
+  } catch (err) {
+    app.log.error(err);
+    process.exit(1);
+  }
+};
+
+start();

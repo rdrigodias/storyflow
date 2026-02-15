@@ -1,0 +1,74 @@
+const fs = require('fs');
+
+const schema = `generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  whatsapp     String?
+  plan         Plan      @default(PLAN_30_DAYS)
+  status       Status    @default(PENDING)
+  role         Role      @default(USER)
+  expiresAt    DateTime?
+  googleApiKey String?
+  projects     StoryboardProject[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model StoryboardProject {
+  id         String        @id @default(uuid())
+  userId     String
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title      String        @default("Projeto sem título")
+  status     ProjectStatus @default(DRAFT)
+  inputJson  Json?
+  resultJson Json?
+  lastError  String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([userId, updatedAt])
+}
+
+enum Plan {
+  PLAN_30_DAYS
+  PLAN_3_MONTHS
+  PLAN_6_MONTHS
+  PLAN_1_YEAR
+}
+
+enum Status {
+  PENDING
+  ACTIVE
+  BANNED
+  EXPIRED
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum ProjectStatus {
+  DRAFT
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+`;
+
+if (!fs.existsSync('prisma')) {
+    fs.mkdirSync('prisma');
+}
+
+fs.writeFileSync('prisma/schema.prisma', schema);
+console.log('✅ Arquivo prisma/schema.prisma recriado com sucesso!');

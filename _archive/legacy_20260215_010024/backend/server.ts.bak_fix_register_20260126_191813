@@ -1,0 +1,323 @@
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import jwt from '@fastify/jwt';
+import { PrismaClient, Status } from '@prisma/client';
+
+import { z } from 'zod';
+
+import bcrypt from 'bcryptjs';
+
+const prisma = new PrismaClient();
+const app = Fastify({ logger: true });
+
+
+
+// CORS
+app.register(cors, {
+  origin: true,
+  methods: ["GET","POST","PUT","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type","Authorization"],
+});
+/* =========================
+   JWT CONFIG
+========================= */
+app.register(jwt, {
+  secret: process.env.JWT_SECRET || 'super-secret',
+});
+
+
+
+/* =========================
+   AUTH ROUTES (LOGIN/REGISTER/ME)
+========================= */
+const registerSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+});
+
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
+
+// REGISTER
+app.post('/register', async (request: any, reply: any) => {
+  try {
+    const { email, password } = registerSchema.parse(request.body);
+
+    const exists = await prisma.user.findUnique({ where: { email } });
+    if (exists) {
+      return reply.code(400).send({ message: 'Error', error: 'Email já cadastrado.' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const user = await prisma.user.create({
+      data: {
+        email,
+        passwordHash: passwordHash,
+        role: 'USER',
+        status: 'ACTIVE',
+        plan: 'PLAN_1_YEAR',
+        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        status: true,
+        plan: true,
+        expiresAt: true,
+        googleApiKey: true,
+      },
+    });
+
+    const token = app.jwt.sign({ id: user.id, role: user.role });
+    return reply.send({ token, user });
+  } catch (error: any) {
+    return reply.code(400).send({ message: 'Error', error: error?.message || 'Falha no registro.' });
+  }
+});
+
+// LOGIN
+app.post('/login', async (request: any, reply: any) => {
+  try {
+    const { email, password } = loginSchema.parse(request.body);
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return reply.code(400).send({ message: 'Error', error: 'Credenciais inválidas.' });
+    }
+
+    if (user.status && String(user.status).toUpperCase() === 'BANNED') {
+      return reply.code(403).send({ message: 'Error', error: 'Usuário banido.' });
+    }
+
+    const ok = await bcrypt.compare(password, user.passwordHash);
+    if (!ok) {
+      return reply.code(400).send({ message: 'Error', error: 'Credenciais inválidas.' });
+    }
+
+    
+    // BLOQUEIO: usuário precisa estar aprovado/ativo
+    if (user.status !== Status.ACTIVE) {
+      return reply.code(403).send({
+        error: "Sua conta está em análise. Aguarde aprovação do administrador.",
+        status: user.status
+      });
+    }
+
+const token = app.jwt.sign({ id: user.id, role: user.role });
+
+    return reply.send({
+      token,
+      user: {
+        email: user.email,
+        role: user.role,
+        status: user.status,
+        plan: user.plan,
+        expiresAt: user.expiresAt,
+        googleApiKey: user.googleApiKey,
+      },
+    });
+  } catch (error: any) {
+    return reply.code(400).send({ message: 'Error', error: error?.message || 'Falha no login.' });
+  }
+});
+
+// ME
+app.get('/me', async (request: any, reply: any) => {
+  try {
+    await request.jwtVerify();
+    const user = await prisma.user.findUnique({ where: { id: request.user.id } });
+    if (!user) return reply.code(404).send({ message: 'User not found' });
+
+    return reply.send({
+      email: user.email,
+      role: user.role,
+      status: user.status,
+      plan: user.plan,
+      expiresAt: user.expiresAt,
+      googleApiKey: user.googleApiKey,
+    });
+  } catch {
+    return reply.code(401).send({ message: 'Unauthorized' });
+  }
+});
+/* =========================
+   AUTH DECORATOR
+========================= */
+app.decorate('authenticate', async function (request: any, reply: any) {
+  try {
+    await request.jwtVerify();
+  } catch {
+    return reply.code(401).send({ error: 'Unauthorized' });
+  }
+});
+
+/* =========================
+   GOOGLE API KEY VALIDATION
+========================= */
+async function validateGoogleApiKey(apiKey: string) {
+  // Validação por formato (bloqueia e-mail/texto aleatório)
+  const cleanKey = String(apiKey || '').trim();
+  const looksLikeGoogleKey = /^AIza[0-9A-Za-z\-_]{30,}$/.test(cleanKey);
+
+  if (!looksLikeGoogleKey) {
+    return { valid: false as const, reason: 'INVALID_KEY' };
+  }
+
+  // (Opcional) Se quiser validar "de verdade" chamando Google, precisa instalar libs e lidar com quotas.
+  // Por enquanto: formato OK = aceita.
+  return { valid: true as const };
+}
+
+/* =========================
+   SAVE USER API KEY
+========================= */
+app.put(
+  '/user/apikey', async (request: any, reply: any) => {
+      await request.jwtVerify();
+
+      await request.jwtVerify();
+
+    const { apiKey } = request.body as { apiKey?: string };
+
+    if (!apiKey || typeof apiKey !== 'string') {
+      return reply.code(400).send({ error: 'API Key é obrigatória' });
+    }
+
+    const cleanKey = apiKey.trim();
+    const validation = await validateGoogleApiKey(cleanKey);
+
+    if (!validation.valid) {
+      switch (validation.reason) {
+        case 'INVALID_KEY':
+          return reply.code(400).send({
+            error: 'Chave inválida. Verifique no Google AI Studio.',
+          });
+        case 'MODEL_NOT_SUPPORTED':
+          return reply.code(500).send({
+            error: 'Erro interno: modelo não suportado para validação.',
+          });
+        case 'QUOTA_EXCEEDED':
+          return reply.code(429).send({
+            error: 'Quota excedida ou billing ausente no Google Cloud.',
+          });
+        case 'PERMISSION_DENIED':
+          return reply.code(403).send({
+            error: 'Chave válida, mas com restrição de IP/referrer/API.',
+          });
+        default:
+          return reply.code(500).send({
+            error: 'Erro temporário ao validar a chave. Tente novamente.',
+          });
+      }
+    }
+
+    await prisma.user.update({
+      where: { id: request.user.id },
+      data: { googleApiKey: cleanKey },
+    });
+
+    return reply.send({ success: true });
+  }
+);
+
+/* =========================
+   START SERVER
+========================= */
+const start = async () => {
+  try {
+    await app.listen({ port: 3001, host: '0.0.0.0' });
+    console.log('🚀 Server running on port 3001');
+  } catch (err) {
+    app.log.error(err);
+    process.exit(1);
+  }
+};
+/* =========================
+   ADMIN ROUTES
+========================= */
+
+app.get('/admin/users', async (req: any, reply: any) => {
+  try {
+    await req.jwtVerify();
+
+    if (req.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ message: 'Acesso Negado' });
+    }
+
+    const users = await prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        email: true,
+        plan: true,
+        status: true,
+        expiresAt: true,
+        role: true,
+        whatsapp: true,
+        googleApiKey: true,
+        createdAt: true,
+      },
+    });
+
+    return reply.send(users);
+  } catch {
+    return reply.status(401).send({ message: 'Unauthorized' });
+  }
+});
+
+app.post('/admin/change-plan', async (req: any, reply: any) => {
+  try {
+    await req.jwtVerify();
+
+    if (req.user?.role !== 'ADMIN') {
+      return reply.status(403).send({ message: 'Acesso Negado' });
+    }
+
+    const { email, newPlan } = req.body || {};
+    if (!email || !newPlan) {
+      return reply.status(400).send({ message: 'email e newPlan obrigatórios' });
+    }
+
+    if (newPlan === 'BAN_USER') {
+      await prisma.user.update({
+        where: { email },
+        data: { status: Status.BANNED },
+      });
+      return reply.send({ message: 'Usuário banido' });
+    }
+
+    const plans: Record<string, number> = {
+      MENSAL: 30,
+      ANUAL: 365,
+      PLAN_30_DAYS: 30,
+      PLAN_1_YEAR: 365,
+    };
+
+    const days = plans[newPlan];
+    if (!days) {
+      return reply.status(400).send({ message: 'Plano inválido' });
+    }
+
+    const expires = new Date();
+    expires.setDate(expires.getDate() + days);
+
+    await prisma.user.update({
+      where: { email },
+      data: {
+        plan: newPlan,
+        status: Status.ACTIVE,
+        expiresAt: expires,
+      } as any,
+    });
+
+    return reply.send({ message: 'Plano atualizado' });
+  } catch (e: any) {
+    return reply.status(400).send({ error: e.message });
+  }
+});
+
+start();

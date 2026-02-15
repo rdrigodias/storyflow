@@ -1,0 +1,115 @@
+import { GoogleGenAI } from "@google/genai";
+import type { Scene } from "../types";
+
+function getGeminiKey() {
+  return (
+    localStorage.getItem("googleApiKey") ||
+    localStorage.getItem("apiKey") ||
+    (import.meta as any).env?.VITE_GEMINI_API_KEY ||
+    ""
+  );
+}
+
+function getClient() {
+  const key = getGeminiKey();
+  if (!key) {
+    throw new Error("API Key não configurada. Clique em 'Configurar API Key'.");
+  }
+  return new GoogleGenAI({ apiKey: key });
+}
+
+// Gera um storyboard simples (cenas) a partir de um prompt.
+// Se o seu core tiver outra assinatura, a gente ajusta na próxima etapa.
+export async function generateStoryboard(prompt: string): Promise<Scene[]> {
+  const ai = getClient();
+
+  const system = `Você é um roteirista e diretor. Gere um storyboard em JSON válido.
+Regras:
+- Responda SOMENTE com JSON (sem markdown).
+- Formato: { "scenes": [ { "title": "...", "narration": "...", "imagePrompt": "...", "duration": 3 } ] }
+- duration em segundos (número).
+- 6 a 10 cenas.`;
+
+  const res = await ai.models.generateContent({
+    model: "models/gemini-2.0-flash",
+    contents: [
+      { role: "user", parts: [{ text: system }] },
+      { role: "user", parts: [{ text: `Tema: ${prompt}` }] },
+    ],
+  });
+
+  const text = res?.text || "";
+  const cleaned = text.trim();
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    // fallback: tenta extrair o primeiro bloco JSON
+    const m = cleaned.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error("Resposta inválida do modelo (JSON não encontrado).");
+    parsed = JSON.parse(m[0]);
+  }
+
+  const scenes = parsed?.scenes;
+  if (!Array.isArray(scenes)) {
+    throw new Error("Resposta inválida do modelo (campo scenes ausente).");
+  }
+
+  return scenes.map((s: any, idx: number) => ({
+    id: s.id ?? String(idx + 1),
+    title: s.title ?? `Cena ${idx + 1}`,
+    narration: s.narration ?? "",
+    imagePrompt: s.imagePrompt ?? "",
+    duration: typeof s.duration === "number" ? s.duration : 3,
+  }));
+}
+
+// Regenera o prompt de imagem de uma cena (mantém estrutura Scene)
+// Observação: se seu core gerar imagens de verdade em outro lugar, isso continua funcionando,
+// pois o Scene.imagePrompt é o que o restante do fluxo usa.
+export async function regenerateSceneImage(scene: Scene, userNotes?: string): Promise<Scene> {
+  const ai = getClient();
+
+  const system = `Você é um diretor de fotografia. Sua tarefa é melhorar o prompt de imagem de uma cena.
+Regras:
+- Responda SOMENTE com JSON válido.
+- Formato: { "imagePrompt": "..." }
+- O prompt deve ser detalhado, visual, com estilo, iluminação, lente, composição.
+- Não inclua markdown.`;
+
+  const base = `
+Cena:
+- title: ${scene.title}
+- narration: ${scene.narration}
+- imagePrompt atual: ${scene.imagePrompt || "(vazio)"}
+${userNotes ? `\nInstruções do usuário: ${userNotes}\n` : ""}
+`;
+
+  const res = await ai.models.generateContent({
+    model: "models/gemini-2.0-flash",
+    contents: [
+      { role: "user", parts: [{ text: system }] },
+      { role: "user", parts: [{ text: base }] },
+    ],
+  });
+
+  const text = res?.text || "";
+  const cleaned = text.trim();
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    const m = cleaned.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error("Resposta inválida do modelo (JSON não encontrado).");
+    parsed = JSON.parse(m[0]);
+  }
+
+  const imagePrompt = parsed?.imagePrompt;
+  if (!imagePrompt || typeof imagePrompt !== "string") {
+    throw new Error("Resposta inválida do modelo (imagePrompt ausente).");
+  }
+
+  return { ...scene, imagePrompt };
+}

@@ -1,0 +1,58 @@
+name: Backend Integration Tests
+
+on:
+  push:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-integration.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-integration.yml'
+
+jobs:
+  backend-integration:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: storyflow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U user -d storyflow"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      DATABASE_URL: postgresql://user:password@localhost:5432/storyflow?schema=public
+      JWT_SECRET: ci-jwt-secret
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync Prisma schema
+        run: npm run prisma:push
+
+      - name: Run backend integration tests
+        run: npm run test:integration
