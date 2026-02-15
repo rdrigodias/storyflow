@@ -1106,6 +1106,52 @@ test('storyboard generate start should reuse provided projectId when project exi
   assert.equal(projectBody.status, 'COMPLETED');
 });
 
+test('storyboard generate start should keep provided projectId when reused job fails', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-start-reuse-project-fail');
+  const existingProject = await createProject(token, { title: 'Projeto Reuso Falha Original' });
+
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...buildStoryboardPayload('__MOCK_FAIL__ erro no reuso'),
+      projectId: existingProject.id,
+      title: 'Projeto Reuso Falha Atualizado',
+    }),
+  });
+  const startBody = await startResponse.json();
+
+  assert.equal(startResponse.status, 200);
+  assert.ok(startBody.jobId);
+  assert.equal(startBody.projectId, existingProject.id);
+  assert.equal(startBody.status, 'running');
+
+  const jobResult = await waitForJobResult(token, startBody.jobId);
+  assert.equal(jobResult.status, 400);
+  assert.equal(jobResult.body.status, 'failed');
+  assert.equal(jobResult.body.projectId, existingProject.id);
+  assert.ok(jobResult.body.error || jobResult.body.message);
+
+  const projectResponse = await fetch(`${baseUrl}/projects/${existingProject.id}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const projectBody = await projectResponse.json();
+
+  assert.equal(projectResponse.status, 200);
+  assert.equal(projectBody.id, existingProject.id);
+  assert.equal(projectBody.title, 'Projeto Reuso Falha Atualizado');
+  assert.equal(projectBody.status, 'FAILED');
+  assert.ok(typeof projectBody.lastError === 'string');
+});
+
 test('storyboard async job should complete successfully in mock mode', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
