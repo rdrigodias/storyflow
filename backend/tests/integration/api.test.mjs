@@ -121,6 +121,96 @@ async function waitForJobResult(token, jobId, timeoutMs = 15000) {
   throw new Error(`Timeout aguardando resultado do job ${jobId}`);
 }
 
+function parseSseBlock(block) {
+  if (!block.trim()) return null;
+
+  let event = 'message';
+  const dataLines = [];
+
+  for (const rawLine of block.split('\n')) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith(':')) continue;
+
+    if (line.startsWith('event:')) {
+      event = line.slice(6).trim();
+      continue;
+    }
+
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trim());
+    }
+  }
+
+  if (!dataLines.length) return null;
+
+  try {
+    return {
+      event,
+      data: JSON.parse(dataLines.join('')),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function collectSseEvents(token, jobId, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(`${baseUrl}/storyboard/jobs/${jobId}/events`, {
+      method: 'GET',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(
+        `Falha ao abrir stream SSE (${response.status}): ${body.error || body.message || 'erro desconhecido'}`
+      );
+    }
+
+    if (!response.body) {
+      throw new Error('Resposta SSE sem body.');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    const events = [];
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      let separatorIndex = buffer.indexOf('\n\n');
+      while (separatorIndex >= 0) {
+        const block = buffer.slice(0, separatorIndex);
+        buffer = buffer.slice(separatorIndex + 2);
+
+        const parsed = parseSseBlock(block);
+        if (parsed) {
+          events.push(parsed);
+          if (parsed.event === 'completed' || parsed.event === 'failed') {
+            return events;
+          }
+        }
+
+        separatorIndex = buffer.indexOf('\n\n');
+      }
+    }
+
+    return events;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 before(async () => {
   serverProcess = spawn('node', ['dist/server.js'], {
     cwd: process.cwd(),
@@ -385,4 +475,60 @@ test('storyboard async job should fail with mocked failure marker', async (t) =>
   assert.equal(projectResponse.status, 200);
   assert.equal(projectBody.status, 'FAILED');
   assert.ok(typeof projectBody.lastError === 'string');
+});
+
+test('storyboard events stream should emit completed event in mock mode', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-sse-success');
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildStoryboardPayload('Primeira cena. Segunda cena.')),
+  });
+  const startBody = await startResponse.json();
+
+  assert.equal(startResponse.status, 200);
+  assert.ok(startBody.jobId);
+
+  const events = await collectSseEvents(token, startBody.jobId);
+  assert.ok(events.length >= 2);
+  assert.ok(events.some((evt) => evt.event === 'progress'));
+  assert.ok(events.some((evt) => evt.event === 'completed'));
+
+  const completed = events.find((evt) => evt.event === 'completed');
+  assert.ok(completed);
+  assert.equal(completed.data.projectId, startBody.projectId);
+  assert.equal(completed.data.status, 'completed');
+});
+
+test('storyboard events stream should emit failed event in mock mode', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-sse-fail');
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildStoryboardPayload('__MOCK_FAIL__ falha sse')),
+  });
+  const startBody = await startResponse.json();
+
+  assert.equal(startResponse.status, 200);
+  assert.ok(startBody.jobId);
+
+  const events = await collectSseEvents(token, startBody.jobId);
+  assert.ok(events.length >= 1);
+  assert.ok(events.some((evt) => evt.event === 'failed'));
+
+  const failed = events.find((evt) => evt.event === 'failed');
+  assert.ok(failed);
+  assert.equal(failed.data.projectId, startBody.projectId);
+  assert.equal(failed.data.status, 'failed');
+  assert.ok(failed.data.error || failed.data.message);
 });
