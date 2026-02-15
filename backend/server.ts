@@ -251,6 +251,63 @@ function sendError(
   });
 }
 
+type ErrorFallback = {
+  statusCode: number;
+  message: string;
+};
+
+function normalizeError(
+  error: unknown,
+  fallback: ErrorFallback = { statusCode: 500, message: 'Internal Server Error' }
+) {
+  if (isUnauthorizedError(error)) {
+    return { statusCode: 401, message: 'Unauthorized' };
+  }
+
+  if (error instanceof z.ZodError) {
+    return { statusCode: 400, message: error.message || fallback.message };
+  }
+
+  if (
+    typeof (error as any)?.statusCode === 'number' &&
+    (error as any).statusCode >= 400 &&
+    (error as any).statusCode <= 599
+  ) {
+    const message =
+      typeof (error as any)?.message === 'string' && (error as any).message.trim().length > 0
+        ? (error as any).message
+        : fallback.message;
+    return { statusCode: (error as any).statusCode, message };
+  }
+
+  if (typeof (error as any)?.message === 'string' && (error as any).message.trim().length > 0) {
+    return {
+      statusCode: fallback.statusCode,
+      message: (error as any).message,
+    };
+  }
+
+  return fallback;
+}
+
+function handleRouteError(
+  reply: any,
+  error: unknown,
+  fallback: ErrorFallback = { statusCode: 400, message: 'Falha na operação.' }
+) {
+  const normalized = normalizeError(error, fallback);
+  return sendError(reply, normalized.statusCode, normalized.message);
+}
+
+app.setErrorHandler((error, request, reply) => {
+  if (reply.sent) return;
+  const normalized = normalizeError(error);
+  if (normalized.statusCode >= 500) {
+    request.log.error(error);
+  }
+  return sendError(reply, normalized.statusCode, normalized.message);
+});
+
 type StoryboardJobStatus = 'running' | 'completed' | 'failed';
 type StoryboardJobEvent = 'progress' | 'completed' | 'failed';
 
@@ -412,7 +469,7 @@ app.post('/register', async (request: any, reply: any) => {
 
     return reply.send({ success: true, user });
   } catch (error: any) {
-    return sendError(reply, 400, error?.message || 'Falha no registro.');
+    return handleRouteError(reply, error, { statusCode: 400, message: 'Falha no registro.' });
   }
 });
 
@@ -458,7 +515,7 @@ app.post('/login', async (request: any, reply: any) => {
       },
     });
   } catch (error: any) {
-    return sendError(reply, 400, error?.message || 'Falha no login.');
+    return handleRouteError(reply, error, { statusCode: 400, message: 'Falha no login.' });
   }
 });
 
@@ -477,8 +534,8 @@ app.get('/me', async (request: any, reply: any) => {
       expiresAt: user.expiresAt,
       googleApiKey: user.googleApiKey,
     });
-  } catch {
-    return sendError(reply, 401, 'Unauthorized');
+  } catch (error: any) {
+    return handleRouteError(reply, error, { statusCode: 401, message: 'Unauthorized' });
   }
 });
 /* =========================
@@ -487,8 +544,8 @@ app.get('/me', async (request: any, reply: any) => {
 app.decorate('authenticate', async function (request: any, reply: any) {
   try {
     await request.jwtVerify();
-  } catch {
-    return sendError(reply, 401, 'Unauthorized');
+  } catch (error: any) {
+    return handleRouteError(reply, error, { statusCode: 401, message: 'Unauthorized' });
   }
 });
 
@@ -574,8 +631,8 @@ app.get('/projects', async (request: any, reply: any) => {
     });
 
     return reply.send(projects);
-  } catch {
-    return sendError(reply, 401, 'Unauthorized');
+  } catch (error: any) {
+    return handleRouteError(reply, error, { statusCode: 401, message: 'Unauthorized' });
   }
 });
 
@@ -591,10 +648,7 @@ app.get('/projects/:projectId', async (request: any, reply: any) => {
 
     return reply.send(result.project);
   } catch (error: any) {
-    if (isUnauthorizedError(error)) {
-      return sendError(reply, 401, 'Unauthorized');
-    }
-    return sendError(reply, 400, error?.message || 'Falha ao carregar projeto.');
+    return handleRouteError(reply, error, { statusCode: 400, message: 'Falha ao carregar projeto.' });
   }
 });
 
@@ -614,10 +668,7 @@ app.post('/projects', async (request: any, reply: any) => {
 
     return reply.send(project);
   } catch (error: any) {
-    if (isUnauthorizedError(error)) {
-      return sendError(reply, 401, 'Unauthorized');
-    }
-    return sendError(reply, 400, error?.message || 'Falha ao criar projeto.');
+    return handleRouteError(reply, error, { statusCode: 400, message: 'Falha ao criar projeto.' });
   }
 });
 
@@ -645,10 +696,7 @@ app.put('/projects/:projectId', async (request: any, reply: any) => {
 
     return reply.send(project);
   } catch (error: any) {
-    if (isUnauthorizedError(error)) {
-      return sendError(reply, 401, 'Unauthorized');
-    }
-    return sendError(reply, 400, error?.message || 'Falha ao atualizar projeto.');
+    return handleRouteError(reply, error, { statusCode: 400, message: 'Falha ao atualizar projeto.' });
   }
 });
 
@@ -665,10 +713,7 @@ app.delete('/projects/:projectId', async (request: any, reply: any) => {
     await prisma.storyboardProject.delete({ where: { id: projectId } });
     return reply.send({ success: true });
   } catch (error: any) {
-    if (isUnauthorizedError(error)) {
-      return sendError(reply, 401, 'Unauthorized');
-    }
-    return sendError(reply, 400, error?.message || 'Falha ao excluir projeto.');
+    return handleRouteError(reply, error, { statusCode: 400, message: 'Falha ao excluir projeto.' });
   }
 });
 
@@ -693,10 +738,7 @@ app.post('/storyboard/generate', async (request: any, reply: any) => {
 
     return reply.send({ scenes });
   } catch (error: any) {
-    if (isUnauthorizedError(error)) {
-      return sendError(reply, 401, 'Unauthorized');
-    }
-    return sendError(reply, 400, error?.message || 'Falha ao gerar storyboard.');
+    return handleRouteError(reply, error, { statusCode: 400, message: 'Falha ao gerar storyboard.' });
   }
 });
 
@@ -717,10 +759,7 @@ app.post('/storyboard/regenerate-image', async (request: any, reply: any) => {
 
     return reply.send({ imageUrl });
   } catch (error: any) {
-    if (isUnauthorizedError(error)) {
-      return sendError(reply, 401, 'Unauthorized');
-    }
-    return sendError(reply, 400, error?.message || 'Falha ao regenerar imagem.');
+    return handleRouteError(reply, error, { statusCode: 400, message: 'Falha ao regenerar imagem.' });
   }
 });
 
@@ -799,10 +838,7 @@ app.post('/storyboard/generate/start', async (request: any, reply: any) => {
       message: job.message,
     });
   } catch (error: any) {
-    if (isUnauthorizedError(error)) {
-      return sendError(reply, 401, 'Unauthorized');
-    }
-    return sendError(reply, 400, error?.message || 'Falha ao iniciar geração de storyboard.');
+    return handleRouteError(reply, error, { statusCode: 400, message: 'Falha ao iniciar geração de storyboard.' });
   }
 });
 
@@ -871,9 +907,9 @@ app.get('/storyboard/jobs/:jobId/events', async (request: any, reply: any) => {
       clearInterval(heartbeat);
       job.clients.delete(raw);
     });
-  } catch {
+  } catch (error: any) {
     if (!reply.sent) {
-      return sendError(reply, 401, 'Unauthorized');
+      return handleRouteError(reply, error, { statusCode: 401, message: 'Unauthorized' });
     }
   }
 });
@@ -917,8 +953,8 @@ app.get('/storyboard/jobs/:jobId/result', async (request: any, reply: any) => {
       scenes: job.scenes || [],
       updatedAt: job.updatedAt,
     });
-  } catch {
-    return sendError(reply, 401, 'Unauthorized');
+  } catch (error: any) {
+    return handleRouteError(reply, error, { statusCode: 401, message: 'Unauthorized' });
   }
 });
 
@@ -962,8 +998,8 @@ app.get('/admin/users', async (req: any, reply: any) => {
     });
 
     return reply.send(users);
-  } catch {
-    return sendError(reply, 401, 'Unauthorized');
+  } catch (error: any) {
+    return handleRouteError(reply, error, { statusCode: 401, message: 'Unauthorized' });
   }
 });
 
@@ -1016,10 +1052,7 @@ app.post('/admin/change-plan', async (req: any, reply: any) => {
 
     return reply.send({ message: 'Plano atualizado' });
   } catch (e: any) {
-    if (isUnauthorizedError(e)) {
-      return sendError(reply, 401, 'Unauthorized');
-    }
-    return sendError(reply, 400, e.message);
+    return handleRouteError(reply, e, { statusCode: 400, message: 'Falha ao atualizar plano.' });
   }
 });
 
