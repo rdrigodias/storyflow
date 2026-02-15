@@ -1106,6 +1106,67 @@ test('storyboard generate start should reuse provided projectId when project exi
   assert.equal(projectBody.status, 'COMPLETED');
 });
 
+test('storyboard generate start should refresh inputJson snapshot when reusing projectId', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-start-reuse-inputjson');
+  const existingProject = await createProject(token, {
+    title: 'Projeto Snapshot Original',
+    inputJson: { legacy: true, marker: 'old-snapshot' },
+  });
+
+  const payload = {
+    ...buildStoryboardPayload('Cena snapshot atualizada.'),
+    restrictionPrompt: 'Sem violencia',
+    delayBetweenScenes: 1234,
+    pacing: 40,
+    projectId: existingProject.id,
+    title: 'Projeto Snapshot Atualizado',
+  };
+
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const startBody = await startResponse.json();
+
+  assert.equal(startResponse.status, 200);
+  assert.ok(startBody.jobId);
+  assert.equal(startBody.projectId, existingProject.id);
+
+  const jobResult = await waitForJobResult(token, startBody.jobId);
+  assert.equal(jobResult.status, 200);
+  assert.equal(jobResult.body.status, 'completed');
+  assert.equal(jobResult.body.projectId, existingProject.id);
+
+  const projectResponse = await fetch(`${baseUrl}/projects/${existingProject.id}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const projectBody = await projectResponse.json();
+
+  assert.equal(projectResponse.status, 200);
+  assert.equal(projectBody.title, 'Projeto Snapshot Atualizado');
+  assert.equal(projectBody.status, 'COMPLETED');
+
+  assert.equal(projectBody.inputJson?.legacy, undefined);
+  assert.equal(projectBody.inputJson?.marker, undefined);
+  assert.deepEqual(projectBody.inputJson?.allCharactersInfo, []);
+  assert.equal(projectBody.inputJson?.scriptOrSrtContent, payload.scriptOrSrtContent);
+  assert.equal(projectBody.inputJson?.isSrt, payload.isSrt);
+  assert.equal(projectBody.inputJson?.imageStyle, payload.imageStyle);
+  assert.equal(projectBody.inputJson?.restrictionPrompt, payload.restrictionPrompt);
+  assert.equal(projectBody.inputJson?.delayBetweenScenes, payload.delayBetweenScenes);
+  assert.equal(projectBody.inputJson?.pacing, payload.pacing);
+  assert.deepEqual(projectBody.inputJson?.characterReferences, []);
+});
+
 test('storyboard generate start should keep provided projectId when reused job fails', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
