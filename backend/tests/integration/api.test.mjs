@@ -85,6 +85,42 @@ async function createProject(token, payload = { title: 'Projeto Integração' })
   return createdProject;
 }
 
+function buildStoryboardPayload(scriptOrSrtContent) {
+  return {
+    characterReferences: [],
+    allCharactersInfo: [],
+    scriptOrSrtContent,
+    isSrt: false,
+    imageStyle: 'Filme Realista',
+    restrictionPrompt: '',
+    delayBetweenScenes: 0,
+    pacing: 35,
+  };
+}
+
+async function waitForJobResult(token, jobId, timeoutMs = 15000) {
+  const timeoutAt = Date.now() + timeoutMs;
+
+  while (Date.now() < timeoutAt) {
+    const response = await fetch(`${baseUrl}/storyboard/jobs/${jobId}/result`, {
+      method: 'GET',
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
+    const body = await response.json();
+
+    if (response.status === 202 || body?.status === 'running') {
+      await sleep(100);
+      continue;
+    }
+
+    return { status: response.status, body };
+  }
+
+  throw new Error(`Timeout aguardando resultado do job ${jobId}`);
+}
+
 before(async () => {
   serverProcess = spawn('node', ['dist/server.js'], {
     cwd: process.cwd(),
@@ -92,6 +128,7 @@ before(async () => {
       ...process.env,
       PORT: String(port),
       JWT_SECRET: jwtSecret,
+      STORYBOARD_MOCK_MODE: '1',
       DATABASE_URL:
         process.env.DATABASE_URL || 'postgresql://user:password@127.0.0.1:5432/storyflow?schema=public',
     },
@@ -271,4 +308,81 @@ test('user should not update project from another user when DB is ready', async 
 
   assert.equal(forbiddenUpdateResponse.status, 403);
   assert.ok(forbiddenUpdateBody.error);
+});
+
+test('storyboard async job should complete successfully in mock mode', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-job-success');
+
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildStoryboardPayload('Cena um. Cena dois. Cena tres.')),
+  });
+  const startBody = await startResponse.json();
+
+  assert.equal(startResponse.status, 200);
+  assert.ok(startBody.jobId);
+  assert.ok(startBody.projectId);
+  assert.equal(startBody.status, 'running');
+
+  const jobResult = await waitForJobResult(token, startBody.jobId);
+  assert.equal(jobResult.status, 200);
+  assert.equal(jobResult.body.status, 'completed');
+  assert.equal(jobResult.body.projectId, startBody.projectId);
+  assert.ok(Array.isArray(jobResult.body.scenes));
+  assert.ok(jobResult.body.scenes.length > 0);
+
+  const projectResponse = await fetch(`${baseUrl}/projects/${startBody.projectId}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const projectBody = await projectResponse.json();
+
+  assert.equal(projectResponse.status, 200);
+  assert.equal(projectBody.status, 'COMPLETED');
+  assert.ok(Array.isArray(projectBody.resultJson?.scenes));
+});
+
+test('storyboard async job should fail with mocked failure marker', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-job-fail');
+
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildStoryboardPayload('__MOCK_FAIL__ forcar erro no job')),
+  });
+  const startBody = await startResponse.json();
+
+  assert.equal(startResponse.status, 200);
+  assert.ok(startBody.jobId);
+  assert.ok(startBody.projectId);
+
+  const jobResult = await waitForJobResult(token, startBody.jobId);
+  assert.equal(jobResult.status, 400);
+  assert.equal(jobResult.body.status, 'failed');
+  assert.ok(jobResult.body.error || jobResult.body.message);
+
+  const projectResponse = await fetch(`${baseUrl}/projects/${startBody.projectId}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const projectBody = await projectResponse.json();
+
+  assert.equal(projectResponse.status, 200);
+  assert.equal(projectBody.status, 'FAILED');
+  assert.ok(typeof projectBody.lastError === 'string');
 });
