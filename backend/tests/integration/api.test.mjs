@@ -1626,6 +1626,32 @@ test('storyboard events stream should allow access for admin user', async (t) =>
   assert.equal(completed.data.status, 'completed');
 });
 
+test('storyboard events stream should require auth token', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-sse-auth');
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildStoryboardPayload('Cena auth eventos um. Cena auth eventos dois.')),
+  });
+  const startBody = await startResponse.json();
+
+  assert.equal(startResponse.status, 200);
+  assert.ok(startBody.jobId);
+
+  const unauthorizedResponse = await fetch(`${baseUrl}/storyboard/jobs/${startBody.jobId}/events`, {
+    method: 'GET',
+  });
+  const unauthorizedBody = await unauthorizedResponse.json();
+
+  assert.equal(unauthorizedResponse.status, 401);
+  assert.ok(unauthorizedBody.error || unauthorizedBody.message);
+});
+
 test('storyboard job result should deny access for another user', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
