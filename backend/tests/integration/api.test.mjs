@@ -928,6 +928,34 @@ test('authenticated user should create and list projects when DB is ready', asyn
   assert.ok(projects.some((project) => project.id === createdProject.id));
 });
 
+test('admin should list projects from different users when DB is ready', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const userA = await createAuthUser('integration-admin-list-a');
+  const userB = await createAuthUser('integration-admin-list-b');
+  const adminToken = signJwt({
+    id: 'synthetic-admin-id',
+    role: 'ADMIN',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const projectA = await createProject(userA.token, { title: 'Projeto Admin Lista A' });
+  const projectB = await createProject(userB.token, { title: 'Projeto Admin Lista B' });
+
+  const listProjectsResponse = await fetch(`${baseUrl}/projects`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${adminToken}`,
+    },
+  });
+  const projects = await listProjectsResponse.json();
+
+  assert.equal(listProjectsResponse.status, 200);
+  assert.ok(Array.isArray(projects));
+  assert.ok(projects.some((project) => project.id === projectA.id && project.userId === userA.user.id));
+  assert.ok(projects.some((project) => project.id === projectB.id && project.userId === userB.user.id));
+});
+
 test('authenticated user should update project fields when DB is ready', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
