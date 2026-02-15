@@ -365,6 +365,75 @@ test('GET /me without token should be unauthorized', async () => {
   assert.ok(body.error || body.message);
 });
 
+test('PUT /user/apikey without token should be unauthorized', async () => {
+  const response = await fetch(`${baseUrl}/user/apikey`, {
+    method: 'PUT',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      apiKey: `AIza${'A'.repeat(30)}`,
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.ok(body.error || body.message);
+});
+
+test('PUT /user/apikey should return 400 for invalid key format', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-apikey-invalid');
+  const response = await fetch(`${baseUrl}/user/apikey`, {
+    method: 'PUT',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      apiKey: 'chave-invalida',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error || body.message);
+});
+
+test('PUT /user/apikey should persist valid key and expose it in GET /me', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { token } = await createAuthUser('integration-apikey-valid');
+  const validApiKey = `AIza${'A'.repeat(30)}`;
+
+  const saveResponse = await fetch(`${baseUrl}/user/apikey`, {
+    method: 'PUT',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      apiKey: validApiKey,
+    }),
+  });
+  const saveBody = await saveResponse.json();
+
+  assert.equal(saveResponse.status, 200);
+  assert.equal(saveBody.success, true);
+
+  const meResponse = await fetch(`${baseUrl}/me`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const meBody = await meResponse.json();
+
+  assert.equal(meResponse.status, 200);
+  assert.equal(meBody.googleApiKey, validApiKey);
+});
+
 test('GET /projects without token should be unauthorized', async () => {
   const response = await fetch(`${baseUrl}/projects`);
   const body = await response.json();
