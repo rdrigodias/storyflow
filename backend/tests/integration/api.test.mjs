@@ -319,6 +319,73 @@ test('POST /register should return 400 when email is already registered', async 
   assert.ok(duplicateBody.error || duplicateBody.message);
 });
 
+test('POST /register should return 400 for invalid email format', async () => {
+  const response = await fetch(`${baseUrl}/register`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: 'email-invalido',
+      password: '123456',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error || body.message);
+});
+
+test('POST /register should return 400 for short password', async () => {
+  const response = await fetch(`${baseUrl}/register`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: `register-short-pass-${Date.now()}@example.com`,
+      password: '12345',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error || body.message);
+});
+
+test('POST /login should return 400 for invalid email format', async () => {
+  const response = await fetch(`${baseUrl}/login`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: 'email-invalido',
+      password: '123456',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error || body.message);
+});
+
+test('POST /login should return 400 when password is missing', async () => {
+  const response = await fetch(`${baseUrl}/login`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: `login-missing-pass-${Date.now()}@example.com`,
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error || body.message);
+});
+
 test('POST /login should return 400 for invalid password', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
