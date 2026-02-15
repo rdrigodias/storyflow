@@ -1481,6 +1481,49 @@ test('POST /projects should return 400 for invalid payload', async () => {
   assert.ok(body.error);
 });
 
+test('POST /projects should return 400 when title exceeds max length', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'user',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/projects`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ title: 'A'.repeat(121) }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error);
+});
+
+test('PUT /projects/:projectId should return 400 when title exceeds max length', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'user',
+    iat: Math.floor(Date.now() / 1000),
+  });
+  const projectId = randomUUID();
+
+  const response = await fetch(`${baseUrl}/projects/${projectId}`, {
+    method: 'PUT',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ title: 'A'.repeat(121) }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error);
+});
+
 test('POST /storyboard/generate/start should return 400 for missing required fields', async () => {
   const token = signJwt({
     id: 'synthetic-user-id',
@@ -1495,6 +1538,60 @@ test('POST /storyboard/generate/start should return 400 for missing required fie
       'content-type': 'application/json',
     },
     body: JSON.stringify({}),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error);
+});
+
+test('POST /storyboard/generate/start should return 400 when characterReferences exceeds max size', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'user',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...buildStoryboardPayload('Conteudo minimo valido para schema base.'),
+      characterReferences: Array.from({ length: 31 }, (_, index) => ({
+        name: `Character ${index + 1}`,
+        base64Image: 'ZmFrZS1pbWFnZS1iYXNlNjQ=',
+        mimeType: 'image/png',
+      })),
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error);
+});
+
+test('POST /storyboard/generate/start should return 400 when allCharactersInfo exceeds max size', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'user',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...buildStoryboardPayload('Conteudo minimo valido para schema base.'),
+      allCharactersInfo: Array.from({ length: 51 }, (_, index) => ({
+        name: `Character ${index + 1}`,
+      })),
+    }),
   });
   const body = await response.json();
 
