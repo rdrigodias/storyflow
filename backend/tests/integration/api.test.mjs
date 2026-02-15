@@ -818,6 +818,57 @@ test('POST /storyboard/generate/start should return 403 for project owned by ano
   assert.ok(body.error || body.message);
 });
 
+test('POST /storyboard/generate/start should allow ADMIN for project owned by another user', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const owner = await createAuthUser('integration-start-project-admin-owner');
+  const adminUser = await createAuthUser('integration-start-project-admin');
+  const adminToken = signJwt({
+    id: adminUser.user.id,
+    role: 'ADMIN',
+    iat: Math.floor(Date.now() / 1000),
+  });
+  const project = await createProject(owner.token, { title: 'Projeto Privado Start Admin' });
+
+  const response = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${adminToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...buildStoryboardPayload('Payload admin com projectId de outro usuario.'),
+      projectId: project.id,
+      title: 'Projeto Atualizado por Admin no Start',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.ok(body.jobId);
+  assert.equal(body.projectId, project.id);
+
+  const jobResult = await waitForJobResult(adminToken, body.jobId);
+  assert.equal(jobResult.status, 200);
+  assert.equal(jobResult.body.status, 'completed');
+  assert.equal(jobResult.body.projectId, project.id);
+  assert.ok(Array.isArray(jobResult.body.scenes));
+  assert.ok(jobResult.body.scenes.length > 0);
+
+  const ownerGetResponse = await fetch(`${baseUrl}/projects/${project.id}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${owner.token}`,
+    },
+  });
+  const ownerProject = await ownerGetResponse.json();
+
+  assert.equal(ownerGetResponse.status, 200);
+  assert.equal(ownerProject.id, project.id);
+  assert.equal(ownerProject.title, 'Projeto Atualizado por Admin no Start');
+  assert.equal(ownerProject.status, 'COMPLETED');
+});
+
 test('POST /storyboard/generate should return 400 for missing required fields', async () => {
   const token = signJwt({
     id: 'synthetic-user-id',
