@@ -1592,6 +1592,40 @@ test('storyboard events stream should deny access for another user', async (t) =
   assert.ok(forbiddenBody.error);
 });
 
+test('storyboard events stream should allow access for admin user', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const owner = await createAuthUser('integration-sse-admin-owner');
+  const adminToken = signJwt({
+    id: 'synthetic-admin-id',
+    role: 'ADMIN',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${owner.token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildStoryboardPayload('Cena admin eventos um. Cena admin eventos dois.')),
+  });
+  const startBody = await startResponse.json();
+
+  assert.equal(startResponse.status, 200);
+  assert.ok(startBody.jobId);
+
+  const events = await collectSseEvents(adminToken, startBody.jobId);
+  assert.ok(events.length >= 2);
+  assert.ok(events.some((evt) => evt.event === 'progress'));
+  assert.ok(events.some((evt) => evt.event === 'completed'));
+
+  const completed = events.find((evt) => evt.event === 'completed');
+  assert.ok(completed);
+  assert.equal(completed.data.projectId, startBody.projectId);
+  assert.equal(completed.data.status, 'completed');
+});
+
 test('storyboard job result should deny access for another user', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
@@ -1621,6 +1655,39 @@ test('storyboard job result should deny access for another user', async (t) => {
 
   assert.equal(forbiddenResponse.status, 403);
   assert.ok(forbiddenBody.error);
+});
+
+test('storyboard job result should allow access for admin user', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const owner = await createAuthUser('integration-result-admin-owner');
+  const adminToken = signJwt({
+    id: 'synthetic-admin-id',
+    role: 'ADMIN',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${owner.token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(
+      buildStoryboardPayload('Cena admin resultado um. Cena admin resultado dois.')
+    ),
+  });
+  const startBody = await startResponse.json();
+
+  assert.equal(startResponse.status, 200);
+  assert.ok(startBody.jobId);
+
+  const jobResult = await waitForJobResult(adminToken, startBody.jobId);
+  assert.equal(jobResult.status, 200);
+  assert.equal(jobResult.body.projectId, startBody.projectId);
+  assert.equal(jobResult.body.status, 'completed');
+  assert.ok(Array.isArray(jobResult.body.scenes));
+  assert.ok(jobResult.body.scenes.length > 0);
 });
 
 test('storyboard job result should require auth token', async (t) => {
