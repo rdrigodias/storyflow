@@ -29,6 +29,8 @@ type SceneWithoutVisuals = Omit<Scene, 'imageUrl' | 'visualDescription'> & {
 
 const PLACEHOLDER_IMAGE_URL =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 112.5'%3E%3Crect width='200' height='112.5' fill='%231f2937'/%3E%3Ctext x='100' y='50' text-anchor='middle' font-family='sans-serif' font-size='10' fill='%23fca5a5'%3EFalha ao gerar a imagem%3C/text%3E%3Ctext x='100' y='65' text-anchor='middle' font-family='sans-serif' font-size='6' fill='%239ca3af'%3EVerifique o console para detalhes.%3C/text%3E%3C/svg%3E";
+const MOCK_IMAGE_URL =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 112.5'%3E%3Crect width='200' height='112.5' fill='%230a3b8c'/%3E%3Ctext x='100' y='58' text-anchor='middle' font-family='sans-serif' font-size='10' fill='%23dbeafe'%3EMock Scene%3C/text%3E%3C/svg%3E";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -135,6 +137,45 @@ function parseAndGroupSrt(srtContent: string, maxWordsPerScene: number): SceneWi
       visualDescription: '',
     };
   });
+}
+
+function splitScriptIntoMockScenes(script: string): SceneWithoutVisuals[] {
+  const parts = script
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const narrations = parts.length ? parts.slice(0, 4) : [script.trim()].filter(Boolean);
+  if (!narrations.length) return [];
+
+  return narrations.map((narration, index) => ({
+    sceneNumber: index + 1,
+    narration,
+    duration: '2 segundos',
+    durationSeconds: 2,
+    visualDescription: `Mock visual da cena ${index + 1}: ${narration.slice(0, 80)}`,
+  }));
+}
+
+function buildMockScenes(args: {
+  scriptOrSrtContent: string;
+  isSrt: boolean;
+  pacing: number;
+}): Scene[] {
+  const { scriptOrSrtContent, isSrt, pacing } = args;
+  const sourceScenes = isSrt
+    ? parseAndGroupSrt(scriptOrSrtContent, pacing)
+    : splitScriptIntoMockScenes(scriptOrSrtContent);
+
+  if (!sourceScenes.length) {
+    throw new Error('Falha simulada: conteúdo vazio para geração mock.');
+  }
+
+  return sourceScenes.map((scene, index) => ({
+    ...scene,
+    visualDescription: scene.visualDescription || `Mock visual da cena ${index + 1}`,
+    imageUrl: MOCK_IMAGE_URL,
+  }));
 }
 
 async function splitScriptIntoScenesWithAI(
@@ -444,6 +485,23 @@ export async function generateStoryboard(args: {
     apiKey,
     onProgress,
   } = args;
+
+  if (process.env.STORYBOARD_MOCK_MODE === '1') {
+    onProgress?.('Modo mock ativo: iniciando geração simulada...');
+    await sleep(50);
+
+    if (scriptOrSrtContent.includes('__MOCK_FAIL__')) {
+      throw new Error('Falha simulada de geração (mock).');
+    }
+
+    const mockScenes = buildMockScenes({ scriptOrSrtContent, isSrt, pacing });
+    for (let i = 0; i < mockScenes.length; i++) {
+      onProgress?.(`Mock: cena ${i + 1} de ${mockScenes.length} concluída.`);
+      await sleep(20);
+    }
+    onProgress?.('Storyboard mock completo!');
+    return mockScenes;
+  }
 
   let scenesWithoutVisuals: SceneWithoutVisuals[];
   if (isSrt) {

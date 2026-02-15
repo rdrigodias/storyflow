@@ -160,6 +160,16 @@ async function getUserForGemini(userId: string) {
     return { ok: false as const, code: 403, error: 'Conta sem permissão para gerar conteúdo.' };
   }
 
+  if (process.env.STORYBOARD_MOCK_MODE === '1') {
+    return {
+      ok: true as const,
+      user: {
+        ...user,
+        googleApiKey: user.googleApiKey || 'mock-key',
+      },
+    };
+  }
+
   if (!user.googleApiKey) {
     return {
       ok: false as const,
