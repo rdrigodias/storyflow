@@ -238,6 +238,19 @@ function isUnauthorizedError(error: any): boolean {
   );
 }
 
+function sendError(
+  reply: any,
+  statusCode: number,
+  message: string,
+  extra: Record<string, unknown> = {}
+) {
+  return reply.code(statusCode).send({
+    error: message,
+    message,
+    ...extra,
+  });
+}
+
 type StoryboardJobStatus = 'running' | 'completed' | 'failed';
 type StoryboardJobEvent = 'progress' | 'completed' | 'failed';
 
@@ -370,7 +383,7 @@ app.post('/register', async (request: any, reply: any) => {
 
     const exists = await prisma.user.findUnique({ where: { email } });
     if (exists) {
-      return reply.code(400).send({ message: 'Error', error: 'Email já cadastrado.' });
+      return sendError(reply, 400, 'Email já cadastrado.');
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -399,7 +412,7 @@ app.post('/register', async (request: any, reply: any) => {
 
     return reply.send({ success: true, user });
   } catch (error: any) {
-    return reply.code(400).send({ message: 'Error', error: error?.message || 'Falha no registro.' });
+    return sendError(reply, 400, error?.message || 'Falha no registro.');
   }
 });
 
@@ -410,24 +423,23 @@ app.post('/login', async (request: any, reply: any) => {
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      return reply.code(400).send({ message: 'Error', error: 'Credenciais inválidas.' });
+      return sendError(reply, 400, 'Credenciais inválidas.');
     }
 
     if (user.status && String(user.status).toUpperCase() === 'BANNED') {
-      return reply.code(403).send({ message: 'Error', error: 'Usuário banido.' });
+      return sendError(reply, 403, 'Usuário banido.');
     }
 
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) {
-      return reply.code(400).send({ message: 'Error', error: 'Credenciais inválidas.' });
+      return sendError(reply, 400, 'Credenciais inválidas.');
     }
 
     
     // BLOQUEIO: usuário precisa estar aprovado/ativo
     if (user.status !== Status.ACTIVE) {
-      return reply.code(403).send({
-        error: "Sua conta está em análise. Aguarde aprovação do administrador.",
-        status: user.status
+      return sendError(reply, 403, 'Sua conta está em análise. Aguarde aprovação do administrador.', {
+        status: user.status,
       });
     }
 
@@ -446,7 +458,7 @@ app.post('/login', async (request: any, reply: any) => {
       },
     });
   } catch (error: any) {
-    return reply.code(400).send({ message: 'Error', error: error?.message || 'Falha no login.' });
+    return sendError(reply, 400, error?.message || 'Falha no login.');
   }
 });
 
@@ -455,7 +467,7 @@ app.get('/me', async (request: any, reply: any) => {
   try {
     await request.jwtVerify();
     const user = await prisma.user.findUnique({ where: { id: request.user.id } });
-    if (!user) return reply.code(404).send({ message: 'User not found' });
+    if (!user) return sendError(reply, 404, 'User not found');
 
     return reply.send({
       email: user.email,
@@ -466,7 +478,7 @@ app.get('/me', async (request: any, reply: any) => {
       googleApiKey: user.googleApiKey,
     });
   } catch {
-    return reply.code(401).send({ message: 'Unauthorized' });
+    return sendError(reply, 401, 'Unauthorized');
   }
 });
 /* =========================
@@ -476,7 +488,7 @@ app.decorate('authenticate', async function (request: any, reply: any) {
   try {
     await request.jwtVerify();
   } catch {
-    return reply.code(401).send({ error: 'Unauthorized' });
+    return sendError(reply, 401, 'Unauthorized');
   }
 });
 
@@ -508,7 +520,7 @@ app.put(
 
 
     if (!apiKey || typeof apiKey !== 'string') {
-      return reply.code(400).send({ error: 'API Key é obrigatória' });
+      return sendError(reply, 400, 'API Key é obrigatória');
     }
 
     const cleanKey = apiKey.trim();
@@ -517,25 +529,15 @@ app.put(
     if (!validation.valid) {
       switch (validation.reason) {
         case 'INVALID_KEY':
-          return reply.code(400).send({
-            error: 'Chave inválida. Verifique no Google AI Studio.',
-          });
+          return sendError(reply, 400, 'Chave inválida. Verifique no Google AI Studio.');
         case 'MODEL_NOT_SUPPORTED':
-          return reply.code(500).send({
-            error: 'Erro interno: modelo não suportado para validação.',
-          });
+          return sendError(reply, 500, 'Erro interno: modelo não suportado para validação.');
         case 'QUOTA_EXCEEDED':
-          return reply.code(429).send({
-            error: 'Quota excedida ou billing ausente no Google Cloud.',
-          });
+          return sendError(reply, 429, 'Quota excedida ou billing ausente no Google Cloud.');
         case 'PERMISSION_DENIED':
-          return reply.code(403).send({
-            error: 'Chave válida, mas com restrição de IP/referrer/API.',
-          });
+          return sendError(reply, 403, 'Chave válida, mas com restrição de IP/referrer/API.');
         default:
-          return reply.code(500).send({
-            error: 'Erro temporário ao validar a chave. Tente novamente.',
-          });
+          return sendError(reply, 500, 'Erro temporário ao validar a chave. Tente novamente.');
       }
     }
 
@@ -573,7 +575,7 @@ app.get('/projects', async (request: any, reply: any) => {
 
     return reply.send(projects);
   } catch {
-    return reply.code(401).send({ error: 'Unauthorized' });
+    return sendError(reply, 401, 'Unauthorized');
   }
 });
 
@@ -584,15 +586,15 @@ app.get('/projects/:projectId', async (request: any, reply: any) => {
     const result = await getProjectForUser(projectId, request.user);
 
     if (!result.ok) {
-      return reply.code(result.code).send({ error: result.error });
+      return sendError(reply, result.code, result.error);
     }
 
     return reply.send(result.project);
   } catch (error: any) {
     if (isUnauthorizedError(error)) {
-      return reply.code(401).send({ error: 'Unauthorized' });
+      return sendError(reply, 401, 'Unauthorized');
     }
-    return reply.code(400).send({ error: error?.message || 'Falha ao carregar projeto.' });
+    return sendError(reply, 400, error?.message || 'Falha ao carregar projeto.');
   }
 });
 
@@ -613,9 +615,9 @@ app.post('/projects', async (request: any, reply: any) => {
     return reply.send(project);
   } catch (error: any) {
     if (isUnauthorizedError(error)) {
-      return reply.code(401).send({ error: 'Unauthorized' });
+      return sendError(reply, 401, 'Unauthorized');
     }
-    return reply.code(400).send({ error: error?.message || 'Falha ao criar projeto.' });
+    return sendError(reply, 400, error?.message || 'Falha ao criar projeto.');
   }
 });
 
@@ -627,7 +629,7 @@ app.put('/projects/:projectId', async (request: any, reply: any) => {
     const result = await getProjectForUser(projectId, request.user);
 
     if (!result.ok) {
-      return reply.code(result.code).send({ error: result.error });
+      return sendError(reply, result.code, result.error);
     }
 
     const updateData: Prisma.StoryboardProjectUpdateInput = {};
@@ -644,9 +646,9 @@ app.put('/projects/:projectId', async (request: any, reply: any) => {
     return reply.send(project);
   } catch (error: any) {
     if (isUnauthorizedError(error)) {
-      return reply.code(401).send({ error: 'Unauthorized' });
+      return sendError(reply, 401, 'Unauthorized');
     }
-    return reply.code(400).send({ error: error?.message || 'Falha ao atualizar projeto.' });
+    return sendError(reply, 400, error?.message || 'Falha ao atualizar projeto.');
   }
 });
 
@@ -657,16 +659,16 @@ app.delete('/projects/:projectId', async (request: any, reply: any) => {
     const result = await getProjectForUser(projectId, request.user);
 
     if (!result.ok) {
-      return reply.code(result.code).send({ error: result.error });
+      return sendError(reply, result.code, result.error);
     }
 
     await prisma.storyboardProject.delete({ where: { id: projectId } });
     return reply.send({ success: true });
   } catch (error: any) {
     if (isUnauthorizedError(error)) {
-      return reply.code(401).send({ error: 'Unauthorized' });
+      return sendError(reply, 401, 'Unauthorized');
     }
-    return reply.code(400).send({ error: error?.message || 'Falha ao excluir projeto.' });
+    return sendError(reply, 400, error?.message || 'Falha ao excluir projeto.');
   }
 });
 
@@ -681,7 +683,7 @@ app.post('/storyboard/generate', async (request: any, reply: any) => {
     const { projectId: _projectId, title: _title, ...generationPayload } = payload;
     const userResult = await getUserForGemini(request.user.id);
     if (!userResult.ok) {
-      return reply.code(userResult.code).send({ error: userResult.error });
+      return sendError(reply, userResult.code, userResult.error);
     }
 
     const scenes = await generateStoryboardWithGemini({
@@ -692,11 +694,9 @@ app.post('/storyboard/generate', async (request: any, reply: any) => {
     return reply.send({ scenes });
   } catch (error: any) {
     if (isUnauthorizedError(error)) {
-      return reply.code(401).send({ error: 'Unauthorized' });
+      return sendError(reply, 401, 'Unauthorized');
     }
-    return reply
-      .code(400)
-      .send({ message: 'Error', error: error?.message || 'Falha ao gerar storyboard.' });
+    return sendError(reply, 400, error?.message || 'Falha ao gerar storyboard.');
   }
 });
 
@@ -707,7 +707,7 @@ app.post('/storyboard/regenerate-image', async (request: any, reply: any) => {
     const payload = regenerateSceneImageSchema.parse(request.body);
     const userResult = await getUserForGemini(request.user.id);
     if (!userResult.ok) {
-      return reply.code(userResult.code).send({ error: userResult.error });
+      return sendError(reply, userResult.code, userResult.error);
     }
 
     const imageUrl = await regenerateSceneImageWithGemini({
@@ -718,11 +718,9 @@ app.post('/storyboard/regenerate-image', async (request: any, reply: any) => {
     return reply.send({ imageUrl });
   } catch (error: any) {
     if (isUnauthorizedError(error)) {
-      return reply.code(401).send({ error: 'Unauthorized' });
+      return sendError(reply, 401, 'Unauthorized');
     }
-    return reply
-      .code(400)
-      .send({ message: 'Error', error: error?.message || 'Falha ao regenerar imagem.' });
+    return sendError(reply, 400, error?.message || 'Falha ao regenerar imagem.');
   }
 });
 
@@ -734,7 +732,7 @@ app.post('/storyboard/generate/start', async (request: any, reply: any) => {
     const { projectId, title, ...generationPayload } = payload;
     const userResult = await getUserForGemini(request.user.id);
     if (!userResult.ok) {
-      return reply.code(userResult.code).send({ error: userResult.error });
+      return sendError(reply, userResult.code, userResult.error);
     }
 
     const inputSnapshot = buildStoryboardInputSnapshot(payload);
@@ -743,7 +741,7 @@ app.post('/storyboard/generate/start', async (request: any, reply: any) => {
     if (projectId) {
       const projectResult = await getProjectForUser(projectId, request.user);
       if (!projectResult.ok) {
-        return reply.code(projectResult.code).send({ error: projectResult.error });
+        return sendError(reply, projectResult.code, projectResult.error);
       }
 
       projectRecord = await prisma.storyboardProject.update({
@@ -802,11 +800,9 @@ app.post('/storyboard/generate/start', async (request: any, reply: any) => {
     });
   } catch (error: any) {
     if (isUnauthorizedError(error)) {
-      return reply.code(401).send({ error: 'Unauthorized' });
+      return sendError(reply, 401, 'Unauthorized');
     }
-    return reply
-      .code(400)
-      .send({ message: 'Error', error: error?.message || 'Falha ao iniciar geração de storyboard.' });
+    return sendError(reply, 400, error?.message || 'Falha ao iniciar geração de storyboard.');
   }
 });
 
@@ -817,10 +813,10 @@ app.get('/storyboard/jobs/:jobId/events', async (request: any, reply: any) => {
     const job = storyboardJobs.get(jobId);
 
     if (!job) {
-      return reply.code(404).send({ error: 'Job não encontrado.' });
+      return sendError(reply, 404, 'Job não encontrado.');
     }
     if (!canAccessJob(request.user, job)) {
-      return reply.code(403).send({ error: 'Acesso negado ao job.' });
+      return sendError(reply, 403, 'Acesso negado ao job.');
     }
 
     reply.hijack();
@@ -877,7 +873,7 @@ app.get('/storyboard/jobs/:jobId/events', async (request: any, reply: any) => {
     });
   } catch {
     if (!reply.sent) {
-      return reply.code(401).send({ error: 'Unauthorized' });
+      return sendError(reply, 401, 'Unauthorized');
     }
   }
 });
@@ -889,10 +885,10 @@ app.get('/storyboard/jobs/:jobId/result', async (request: any, reply: any) => {
     const job = storyboardJobs.get(jobId);
 
     if (!job) {
-      return reply.code(404).send({ error: 'Job não encontrado.' });
+      return sendError(reply, 404, 'Job não encontrado.');
     }
     if (!canAccessJob(request.user, job)) {
-      return reply.code(403).send({ error: 'Acesso negado ao job.' });
+      return sendError(reply, 403, 'Acesso negado ao job.');
     }
 
     if (job.status === 'running') {
@@ -922,7 +918,7 @@ app.get('/storyboard/jobs/:jobId/result', async (request: any, reply: any) => {
       updatedAt: job.updatedAt,
     });
   } catch {
-    return reply.code(401).send({ error: 'Unauthorized' });
+    return sendError(reply, 401, 'Unauthorized');
   }
 });
 
@@ -947,7 +943,7 @@ app.get('/admin/users', async (req: any, reply: any) => {
     await req.jwtVerify();
 
     if (req.user?.role !== 'ADMIN') {
-      return reply.status(403).send({ message: 'Acesso Negado' });
+      return sendError(reply, 403, 'Acesso Negado');
     }
 
     const users = await prisma.user.findMany({
@@ -967,7 +963,7 @@ app.get('/admin/users', async (req: any, reply: any) => {
 
     return reply.send(users);
   } catch {
-    return reply.status(401).send({ message: 'Unauthorized' });
+    return sendError(reply, 401, 'Unauthorized');
   }
 });
 
@@ -976,12 +972,12 @@ app.post('/admin/change-plan', async (req: any, reply: any) => {
     await req.jwtVerify();
 
     if (req.user?.role !== 'ADMIN') {
-      return reply.status(403).send({ message: 'Acesso Negado' });
+      return sendError(reply, 403, 'Acesso Negado');
     }
 
     const { email, newPlan } = req.body || {};
     if (!email || !newPlan) {
-      return reply.status(400).send({ message: 'email e newPlan obrigatórios' });
+      return sendError(reply, 400, 'email e newPlan obrigatórios');
     }
 
     if (newPlan === 'BAN_USER') {
@@ -1003,7 +999,7 @@ app.post('/admin/change-plan', async (req: any, reply: any) => {
 
     const days = plans[newPlan];
     if (!days) {
-      return reply.status(400).send({ message: 'Plano inválido' });
+      return sendError(reply, 400, 'Plano inválido');
     }
 
     const expires = new Date();
@@ -1021,9 +1017,9 @@ app.post('/admin/change-plan', async (req: any, reply: any) => {
     return reply.send({ message: 'Plano atualizado' });
   } catch (e: any) {
     if (isUnauthorizedError(e)) {
-      return reply.status(401).send({ message: 'Unauthorized' });
+      return sendError(reply, 401, 'Unauthorized');
     }
-    return reply.status(400).send({ error: e.message });
+    return sendError(reply, 400, e.message);
   }
 });
 
