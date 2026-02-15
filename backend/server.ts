@@ -1020,6 +1020,9 @@ app.post('/admin/change-plan', async (req: any, reply: any) => {
 
     return reply.send({ message: 'Plano atualizado' });
   } catch (e: any) {
+    if (isUnauthorizedError(e)) {
+      return reply.status(401).send({ message: 'Unauthorized' });
+    }
     return reply.status(400).send({ error: e.message });
   }
 });
