@@ -666,6 +666,88 @@ test('POST /storyboard/generate/start should return 400 for invalid pacing range
   assert.ok(body.error);
 });
 
+test('POST /storyboard/generate/start should return 404 when authenticated user does not exist', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const token = signJwt({
+    id: `missing-user-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+    role: 'USER',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildStoryboardPayload('Conteudo start para usuario inexistente.')),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 404);
+  assert.ok(body.error || body.message);
+});
+
+test('POST /storyboard/generate/start should deny banned user', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { user, token } = await createAuthUser('integration-start-banned');
+  const adminToken = signJwt({
+    id: 'synthetic-admin-id',
+    role: 'ADMIN',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const banResponse = await fetch(`${baseUrl}/admin/change-plan`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${adminToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: user.email,
+      newPlan: 'BAN_USER',
+    }),
+  });
+  const banBody = await banResponse.json();
+  assert.equal(banResponse.status, 200);
+  assert.ok(banBody.message);
+
+  const forbiddenResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildStoryboardPayload('Start bloqueado por banimento.')),
+  });
+  const forbiddenBody = await forbiddenResponse.json();
+
+  assert.equal(forbiddenResponse.status, 403);
+  assert.ok(forbiddenBody.error || forbiddenBody.message);
+});
+
+test('POST /storyboard/generate/start should deny expired user', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { user, token } = await createAuthUser('integration-start-expired');
+  await updateUserStatus(user.id, 'EXPIRED');
+
+  const forbiddenResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildStoryboardPayload('Start bloqueado por expiracao.')),
+  });
+  const forbiddenBody = await forbiddenResponse.json();
+
+  assert.equal(forbiddenResponse.status, 403);
+  assert.ok(forbiddenBody.error || forbiddenBody.message);
+});
+
 test('POST /storyboard/generate should return 400 for missing required fields', async () => {
   const token = signJwt({
     id: 'synthetic-user-id',
