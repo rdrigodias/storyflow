@@ -400,6 +400,55 @@ test('user should not update project from another user when DB is ready', async 
   assert.ok(forbiddenUpdateBody.error);
 });
 
+test('user should not read project from another user when DB is ready', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const owner = await createAuthUser('integration-read-owner');
+  const outsider = await createAuthUser('integration-read-outsider');
+  const project = await createProject(owner.token, { title: 'Projeto Privado Leitura' });
+
+  const forbiddenGetResponse = await fetch(`${baseUrl}/projects/${project.id}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${outsider.token}`,
+    },
+  });
+  const forbiddenGetBody = await forbiddenGetResponse.json();
+
+  assert.equal(forbiddenGetResponse.status, 403);
+  assert.ok(forbiddenGetBody.error);
+});
+
+test('user should not delete project from another user when DB is ready', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const owner = await createAuthUser('integration-delete-owner');
+  const outsider = await createAuthUser('integration-delete-outsider');
+  const project = await createProject(owner.token, { title: 'Projeto Privado Exclusao' });
+
+  const forbiddenDeleteResponse = await fetch(`${baseUrl}/projects/${project.id}`, {
+    method: 'DELETE',
+    headers: {
+      authorization: `Bearer ${outsider.token}`,
+    },
+  });
+  const forbiddenDeleteBody = await forbiddenDeleteResponse.json();
+
+  assert.equal(forbiddenDeleteResponse.status, 403);
+  assert.ok(forbiddenDeleteBody.error);
+
+  const ownerGetResponse = await fetch(`${baseUrl}/projects/${project.id}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${owner.token}`,
+    },
+  });
+  const ownerGetBody = await ownerGetResponse.json();
+
+  assert.equal(ownerGetResponse.status, 200);
+  assert.equal(ownerGetBody.id, project.id);
+});
+
 test('storyboard async job should complete successfully in mock mode', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
