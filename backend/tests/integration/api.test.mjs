@@ -1090,6 +1090,89 @@ test('user should not delete project from another user when DB is ready', async 
   assert.equal(ownerGetBody.id, project.id);
 });
 
+test('admin should read and update project from another user when DB is ready', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const owner = await createAuthUser('integration-admin-read-update-owner');
+  const adminToken = signJwt({
+    id: 'synthetic-admin-id',
+    role: 'ADMIN',
+    iat: Math.floor(Date.now() / 1000),
+  });
+  const project = await createProject(owner.token, { title: 'Projeto Privado Admin Edit' });
+
+  const adminGetResponse = await fetch(`${baseUrl}/projects/${project.id}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${adminToken}`,
+    },
+  });
+  const adminGetBody = await adminGetResponse.json();
+
+  assert.equal(adminGetResponse.status, 200);
+  assert.equal(adminGetBody.id, project.id);
+  assert.equal(adminGetBody.userId, owner.user.id);
+
+  const adminUpdateResponse = await fetch(`${baseUrl}/projects/${project.id}`, {
+    method: 'PUT',
+    headers: {
+      authorization: `Bearer ${adminToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ title: 'Projeto Atualizado por Admin' }),
+  });
+  const adminUpdateBody = await adminUpdateResponse.json();
+
+  assert.equal(adminUpdateResponse.status, 200);
+  assert.equal(adminUpdateBody.id, project.id);
+  assert.equal(adminUpdateBody.title, 'Projeto Atualizado por Admin');
+
+  const ownerGetResponse = await fetch(`${baseUrl}/projects/${project.id}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${owner.token}`,
+    },
+  });
+  const ownerGetBody = await ownerGetResponse.json();
+
+  assert.equal(ownerGetResponse.status, 200);
+  assert.equal(ownerGetBody.title, 'Projeto Atualizado por Admin');
+});
+
+test('admin should delete project from another user when DB is ready', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const owner = await createAuthUser('integration-admin-delete-owner');
+  const adminToken = signJwt({
+    id: 'synthetic-admin-id',
+    role: 'ADMIN',
+    iat: Math.floor(Date.now() / 1000),
+  });
+  const project = await createProject(owner.token, { title: 'Projeto Privado Admin Delete' });
+
+  const adminDeleteResponse = await fetch(`${baseUrl}/projects/${project.id}`, {
+    method: 'DELETE',
+    headers: {
+      authorization: `Bearer ${adminToken}`,
+    },
+  });
+  const adminDeleteBody = await adminDeleteResponse.json();
+
+  assert.equal(adminDeleteResponse.status, 200);
+  assert.equal(adminDeleteBody.success, true);
+
+  const ownerGetResponse = await fetch(`${baseUrl}/projects/${project.id}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${owner.token}`,
+    },
+  });
+  const ownerGetBody = await ownerGetResponse.json();
+
+  assert.equal(ownerGetResponse.status, 404);
+  assert.ok(ownerGetBody.error);
+});
+
 test('storyboard generate start should reuse provided projectId when project exists', async (t) => {
   if (!databaseReady) t.skip('Database not ready in this environment.');
 
