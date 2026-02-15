@@ -299,6 +299,72 @@ test('GET /ready should return ready or not_ready', async () => {
   assert.ok(typeof body.timestamp === 'string');
 });
 
+test('POST /login should deny pending user', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { user } = await createAuthUser('integration-login-pending');
+
+  const response = await fetch(`${baseUrl}/login`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: user.email,
+      password: '123456',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 403);
+  assert.equal(body.status, 'PENDING');
+  assert.ok(body.error);
+});
+
+test('POST /login should authenticate ACTIVE user and GET /me should return profile', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { user } = await createAuthUser('integration-login-active');
+  await updateUserStatus(user.id, 'ACTIVE');
+
+  const loginResponse = await fetch(`${baseUrl}/login`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: user.email,
+      password: '123456',
+    }),
+  });
+  const loginBody = await loginResponse.json();
+
+  assert.equal(loginResponse.status, 200);
+  assert.ok(loginBody.token);
+  assert.equal(loginBody.user.email, user.email);
+  assert.equal(loginBody.user.status, 'ACTIVE');
+
+  const meResponse = await fetch(`${baseUrl}/me`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${loginBody.token}`,
+    },
+  });
+  const meBody = await meResponse.json();
+
+  assert.equal(meResponse.status, 200);
+  assert.equal(meBody.email, user.email);
+  assert.equal(meBody.status, 'ACTIVE');
+});
+
+test('GET /me without token should be unauthorized', async () => {
+  const response = await fetch(`${baseUrl}/me`);
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.ok(body.error || body.message);
+});
+
 test('GET /projects without token should be unauthorized', async () => {
   const response = await fetch(`${baseUrl}/projects`);
   const body = await response.json();
