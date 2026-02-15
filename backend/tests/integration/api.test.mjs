@@ -331,6 +331,121 @@ test('POST /storyboard/regenerate-image without token should fail auth', async (
   assert.ok(body.error || body.message);
 });
 
+test('GET /admin/users without token should be unauthorized', async () => {
+  const response = await fetch(`${baseUrl}/admin/users`);
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.ok(body.message || body.error);
+});
+
+test('GET /admin/users with non-admin role should be forbidden', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'USER',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/admin/users`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 403);
+  assert.ok(body.message || body.error);
+});
+
+test('POST /admin/change-plan without token should be unauthorized', async () => {
+  const response = await fetch(`${baseUrl}/admin/change-plan`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: 'test@example.com',
+      newPlan: 'PLAN_30_DAYS',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.ok(body.message || body.error);
+});
+
+test('POST /admin/change-plan with non-admin role should be forbidden', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'USER',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/admin/change-plan`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: 'test@example.com',
+      newPlan: 'PLAN_30_DAYS',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 403);
+  assert.ok(body.message || body.error);
+});
+
+test('POST /admin/change-plan should return 400 when payload is incomplete', async () => {
+  const adminToken = signJwt({
+    id: 'synthetic-admin-id',
+    role: 'ADMIN',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/admin/change-plan`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${adminToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: 'test@example.com',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.message || body.error);
+});
+
+test('POST /admin/change-plan should return 400 for invalid plan', async () => {
+  const adminToken = signJwt({
+    id: 'synthetic-admin-id',
+    role: 'ADMIN',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/admin/change-plan`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${adminToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: 'test@example.com',
+      newPlan: 'PLANO_INVALIDO',
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.message || body.error);
+});
+
 test('project routes should return 400 for invalid projectId format', async () => {
   const token = signJwt({
     id: 'synthetic-user-id',
