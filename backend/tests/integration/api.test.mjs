@@ -98,6 +98,16 @@ function buildStoryboardPayload(scriptOrSrtContent) {
   };
 }
 
+function buildRegenerateImagePayload() {
+  return {
+    visualDescription: 'Cena de teste para regeneracao',
+    characterReferences: [],
+    allCharactersInfo: [],
+    imageStyle: 'Filme Realista',
+    restrictionPrompt: '',
+  };
+}
+
 async function waitForJobResult(token, jobId, timeoutMs = 15000) {
   const timeoutAt = Date.now() + timeoutMs;
 
@@ -293,6 +303,34 @@ test('POST /storyboard/generate/start without token should fail auth', async () 
   assert.ok(body.error || body.message);
 });
 
+test('POST /storyboard/generate without token should fail auth', async () => {
+  const response = await fetch(`${baseUrl}/storyboard/generate`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.ok(body.error || body.message);
+});
+
+test('POST /storyboard/regenerate-image without token should fail auth', async () => {
+  const response = await fetch(`${baseUrl}/storyboard/regenerate-image`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.ok(body.error || body.message);
+});
+
 test('project routes should return 400 for invalid projectId format', async () => {
   const token = signJwt({
     id: 'synthetic-user-id',
@@ -422,6 +460,48 @@ test('POST /storyboard/generate/start should return 400 for invalid pacing range
       ...buildStoryboardPayload('Conteudo minimo valido para schema base.'),
       pacing: 5,
     }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error);
+});
+
+test('POST /storyboard/generate should return 400 for missing required fields', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'user',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/storyboard/generate`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.ok(body.error);
+});
+
+test('POST /storyboard/regenerate-image should return 400 for missing required fields', async () => {
+  const token = signJwt({
+    id: 'synthetic-user-id',
+    role: 'user',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/storyboard/regenerate-image`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({}),
   });
   const body = await response.json();
 
@@ -804,4 +884,82 @@ test('storyboard job result should require auth token', async (t) => {
 
   assert.equal(unauthorizedResponse.status, 401);
   assert.ok(unauthorizedBody.error || unauthorizedBody.message);
+});
+
+test('storyboard generate should deny banned user', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { user, token } = await createAuthUser('integration-generate-banned');
+  const adminToken = signJwt({
+    id: 'synthetic-admin-id',
+    role: 'ADMIN',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const banResponse = await fetch(`${baseUrl}/admin/change-plan`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${adminToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: user.email,
+      newPlan: 'BAN_USER',
+    }),
+  });
+  const banBody = await banResponse.json();
+  assert.equal(banResponse.status, 200);
+  assert.ok(banBody.message);
+
+  const forbiddenResponse = await fetch(`${baseUrl}/storyboard/generate`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildStoryboardPayload('Teste de geracao bloqueada por banimento.')),
+  });
+  const forbiddenBody = await forbiddenResponse.json();
+
+  assert.equal(forbiddenResponse.status, 403);
+  assert.ok(forbiddenBody.error || forbiddenBody.message);
+});
+
+test('storyboard regenerate-image should deny banned user', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { user, token } = await createAuthUser('integration-regenerate-banned');
+  const adminToken = signJwt({
+    id: 'synthetic-admin-id',
+    role: 'ADMIN',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const banResponse = await fetch(`${baseUrl}/admin/change-plan`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${adminToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: user.email,
+      newPlan: 'BAN_USER',
+    }),
+  });
+  const banBody = await banResponse.json();
+  assert.equal(banResponse.status, 200);
+  assert.ok(banBody.message);
+
+  const forbiddenResponse = await fetch(`${baseUrl}/storyboard/regenerate-image`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(buildRegenerateImagePayload()),
+  });
+  const forbiddenBody = await forbiddenResponse.json();
+
+  assert.equal(forbiddenResponse.status, 403);
+  assert.ok(forbiddenBody.error || forbiddenBody.message);
 });
