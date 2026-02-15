@@ -797,6 +797,145 @@ test('GET /projects without token should be unauthorized', async () => {
   assert.ok(body.error || body.message);
 });
 
+test('project routes should return 401 with invalid token signature', async () => {
+  const validToken = signJwt({
+    id: randomUUID(),
+    role: 'USER',
+    iat: Math.floor(Date.now() / 1000),
+  });
+  const [header, payload, signature] = validToken.split('.');
+  const tamperedSignature = `${signature[0] === 'a' ? 'b' : 'a'}${signature.slice(1)}`;
+  const tamperedToken = `${header}.${payload}.${tamperedSignature}`;
+  const projectId = randomUUID();
+
+  const listResponse = await fetch(`${baseUrl}/projects`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${tamperedToken}`,
+    },
+  });
+  const listBody = await listResponse.json();
+  assert.equal(listResponse.status, 401);
+  assert.ok(listBody.error || listBody.message);
+
+  const createResponse = await fetch(`${baseUrl}/projects`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${tamperedToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      title: 'Projeto Teste',
+    }),
+  });
+  const createBody = await createResponse.json();
+  assert.equal(createResponse.status, 401);
+  assert.ok(createBody.error || createBody.message);
+
+  const getResponse = await fetch(`${baseUrl}/projects/${projectId}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${tamperedToken}`,
+    },
+  });
+  const getBody = await getResponse.json();
+  assert.equal(getResponse.status, 401);
+  assert.ok(getBody.error || getBody.message);
+
+  const updateResponse = await fetch(`${baseUrl}/projects/${projectId}`, {
+    method: 'PUT',
+    headers: {
+      authorization: `Bearer ${tamperedToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      title: 'Projeto Atualizado',
+    }),
+  });
+  const updateBody = await updateResponse.json();
+  assert.equal(updateResponse.status, 401);
+  assert.ok(updateBody.error || updateBody.message);
+
+  const deleteResponse = await fetch(`${baseUrl}/projects/${projectId}`, {
+    method: 'DELETE',
+    headers: {
+      authorization: `Bearer ${tamperedToken}`,
+    },
+  });
+  const deleteBody = await deleteResponse.json();
+  assert.equal(deleteResponse.status, 401);
+  assert.ok(deleteBody.error || deleteBody.message);
+});
+
+test('project routes should return 401 with expired token', async () => {
+  const nowInSeconds = Math.floor(Date.now() / 1000);
+  const expiredToken = signJwt({
+    id: randomUUID(),
+    role: 'USER',
+    iat: nowInSeconds - 120,
+    exp: nowInSeconds - 60,
+  });
+  const projectId = randomUUID();
+
+  const listResponse = await fetch(`${baseUrl}/projects`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${expiredToken}`,
+    },
+  });
+  const listBody = await listResponse.json();
+  assert.equal(listResponse.status, 401);
+  assert.ok(listBody.error || listBody.message);
+
+  const createResponse = await fetch(`${baseUrl}/projects`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${expiredToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      title: 'Projeto Teste',
+    }),
+  });
+  const createBody = await createResponse.json();
+  assert.equal(createResponse.status, 401);
+  assert.ok(createBody.error || createBody.message);
+
+  const getResponse = await fetch(`${baseUrl}/projects/${projectId}`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${expiredToken}`,
+    },
+  });
+  const getBody = await getResponse.json();
+  assert.equal(getResponse.status, 401);
+  assert.ok(getBody.error || getBody.message);
+
+  const updateResponse = await fetch(`${baseUrl}/projects/${projectId}`, {
+    method: 'PUT',
+    headers: {
+      authorization: `Bearer ${expiredToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      title: 'Projeto Atualizado',
+    }),
+  });
+  const updateBody = await updateResponse.json();
+  assert.equal(updateResponse.status, 401);
+  assert.ok(updateBody.error || updateBody.message);
+
+  const deleteResponse = await fetch(`${baseUrl}/projects/${projectId}`, {
+    method: 'DELETE',
+    headers: {
+      authorization: `Bearer ${expiredToken}`,
+    },
+  });
+  const deleteBody = await deleteResponse.json();
+  assert.equal(deleteResponse.status, 401);
+  assert.ok(deleteBody.error || deleteBody.message);
+});
+
 test('POST /storyboard/generate/start without token should fail auth', async () => {
   const response = await fetch(`${baseUrl}/storyboard/generate/start`, {
     method: 'POST',
