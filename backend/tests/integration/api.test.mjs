@@ -590,6 +590,46 @@ test('GET /me without token should be unauthorized', async () => {
   assert.ok(body.error || body.message);
 });
 
+test('GET /me with invalid token signature should be unauthorized', async () => {
+  const validToken = signJwt({
+    id: randomUUID(),
+    role: 'USER',
+    iat: Math.floor(Date.now() / 1000),
+  });
+  const lastChar = validToken.slice(-1);
+  const tamperedToken = `${validToken.slice(0, -1)}${lastChar === 'a' ? 'b' : 'a'}`;
+
+  const response = await fetch(`${baseUrl}/me`, {
+    headers: {
+      authorization: `Bearer ${tamperedToken}`,
+    },
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.ok(body.error || body.message);
+});
+
+test('GET /me with expired token should be unauthorized', async () => {
+  const nowInSeconds = Math.floor(Date.now() / 1000);
+  const expiredToken = signJwt({
+    id: randomUUID(),
+    role: 'USER',
+    iat: nowInSeconds - 120,
+    exp: nowInSeconds - 60,
+  });
+
+  const response = await fetch(`${baseUrl}/me`, {
+    headers: {
+      authorization: `Bearer ${expiredToken}`,
+    },
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.ok(body.error || body.message);
+});
+
 test('PUT /user/apikey without token should be unauthorized', async () => {
   const response = await fetch(`${baseUrl}/user/apikey`, {
     method: 'PUT',
