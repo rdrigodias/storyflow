@@ -446,6 +446,72 @@ test('POST /admin/change-plan should return 400 for invalid plan', async () => {
   assert.ok(body.message || body.error);
 });
 
+test('GET /admin/users should return users list for admin role when DB is ready', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { user } = await createAuthUser('integration-admin-users-success');
+  const adminToken = signJwt({
+    id: 'synthetic-admin-id',
+    role: 'ADMIN',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const response = await fetch(`${baseUrl}/admin/users`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${adminToken}`,
+    },
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.ok(Array.isArray(body));
+  assert.ok(body.some((listedUser) => listedUser.email === user.email));
+});
+
+test('POST /admin/change-plan should update user plan for admin role when DB is ready', async (t) => {
+  if (!databaseReady) t.skip('Database not ready in this environment.');
+
+  const { user } = await createAuthUser('integration-admin-change-plan-success');
+  const adminToken = signJwt({
+    id: 'synthetic-admin-id',
+    role: 'ADMIN',
+    iat: Math.floor(Date.now() / 1000),
+  });
+
+  const changePlanResponse = await fetch(`${baseUrl}/admin/change-plan`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${adminToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: user.email,
+      newPlan: 'PLAN_3_MONTHS',
+    }),
+  });
+  const changePlanBody = await changePlanResponse.json();
+
+  assert.equal(changePlanResponse.status, 200);
+  assert.ok(changePlanBody.message);
+
+  const usersResponse = await fetch(`${baseUrl}/admin/users`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${adminToken}`,
+    },
+  });
+  const usersBody = await usersResponse.json();
+
+  assert.equal(usersResponse.status, 200);
+  assert.ok(Array.isArray(usersBody));
+
+  const updatedUser = usersBody.find((listedUser) => listedUser.email === user.email);
+  assert.ok(updatedUser);
+  assert.equal(updatedUser.plan, 'PLAN_3_MONTHS');
+  assert.equal(updatedUser.status, 'ACTIVE');
+});
+
 test('project routes should return 400 for invalid projectId format', async () => {
   const token = signJwt({
     id: 'synthetic-user-id',
