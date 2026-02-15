@@ -978,6 +978,141 @@ test('POST /storyboard/regenerate-image without token should fail auth', async (
   assert.ok(body.error || body.message);
 });
 
+test('storyboard routes should return 401 with invalid token signature', async () => {
+  const validToken = signJwt({
+    id: randomUUID(),
+    role: 'USER',
+    iat: Math.floor(Date.now() / 1000),
+  });
+  const [header, payload, signature] = validToken.split('.');
+  const tamperedSignature = `${signature[0] === 'a' ? 'b' : 'a'}${signature.slice(1)}`;
+  const tamperedToken = `${header}.${payload}.${tamperedSignature}`;
+  const missingJobId = randomUUID();
+
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${tamperedToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+  const startBody = await startResponse.json();
+  assert.equal(startResponse.status, 401);
+  assert.ok(startBody.error || startBody.message);
+
+  const generateResponse = await fetch(`${baseUrl}/storyboard/generate`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${tamperedToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+  const generateBody = await generateResponse.json();
+  assert.equal(generateResponse.status, 401);
+  assert.ok(generateBody.error || generateBody.message);
+
+  const regenerateResponse = await fetch(`${baseUrl}/storyboard/regenerate-image`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${tamperedToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+  const regenerateBody = await regenerateResponse.json();
+  assert.equal(regenerateResponse.status, 401);
+  assert.ok(regenerateBody.error || regenerateBody.message);
+
+  const eventsResponse = await fetch(`${baseUrl}/storyboard/jobs/${missingJobId}/events`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${tamperedToken}`,
+    },
+  });
+  const eventsBody = await eventsResponse.json();
+  assert.equal(eventsResponse.status, 401);
+  assert.ok(eventsBody.error || eventsBody.message);
+
+  const resultResponse = await fetch(`${baseUrl}/storyboard/jobs/${missingJobId}/result`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${tamperedToken}`,
+    },
+  });
+  const resultBody = await resultResponse.json();
+  assert.equal(resultResponse.status, 401);
+  assert.ok(resultBody.error || resultBody.message);
+});
+
+test('storyboard routes should return 401 with expired token', async () => {
+  const nowInSeconds = Math.floor(Date.now() / 1000);
+  const expiredToken = signJwt({
+    id: randomUUID(),
+    role: 'USER',
+    iat: nowInSeconds - 120,
+    exp: nowInSeconds - 60,
+  });
+  const missingJobId = randomUUID();
+
+  const startResponse = await fetch(`${baseUrl}/storyboard/generate/start`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${expiredToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+  const startBody = await startResponse.json();
+  assert.equal(startResponse.status, 401);
+  assert.ok(startBody.error || startBody.message);
+
+  const generateResponse = await fetch(`${baseUrl}/storyboard/generate`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${expiredToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+  const generateBody = await generateResponse.json();
+  assert.equal(generateResponse.status, 401);
+  assert.ok(generateBody.error || generateBody.message);
+
+  const regenerateResponse = await fetch(`${baseUrl}/storyboard/regenerate-image`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${expiredToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+  const regenerateBody = await regenerateResponse.json();
+  assert.equal(regenerateResponse.status, 401);
+  assert.ok(regenerateBody.error || regenerateBody.message);
+
+  const eventsResponse = await fetch(`${baseUrl}/storyboard/jobs/${missingJobId}/events`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${expiredToken}`,
+    },
+  });
+  const eventsBody = await eventsResponse.json();
+  assert.equal(eventsResponse.status, 401);
+  assert.ok(eventsBody.error || eventsBody.message);
+
+  const resultResponse = await fetch(`${baseUrl}/storyboard/jobs/${missingJobId}/result`, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${expiredToken}`,
+    },
+  });
+  const resultBody = await resultResponse.json();
+  assert.equal(resultResponse.status, 401);
+  assert.ok(resultBody.error || resultBody.message);
+});
+
 test('GET /admin/users without token should be unauthorized', async () => {
   const response = await fetch(`${baseUrl}/admin/users`);
   const body = await response.json();
